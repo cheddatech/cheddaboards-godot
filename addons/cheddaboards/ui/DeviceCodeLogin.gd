@@ -1,4 +1,4 @@
-# DeviceCodeLogin.gd v1.4.0
+# DeviceCodeLogin.gd v1.4.1
 # Ships with the CheddaBoards addon (addons/cheddaboards/ui/). Reusable
 # popup for the device code sign-in flow. Reskin it via theme overrides
 # on the scene, or copy it into your project and edit freely.
@@ -19,6 +19,11 @@
 # When approved, it emits `signed_in(nickname)` and removes itself.
 # When closed/expired, it emits `cancelled` and removes itself.
 #
+# v1.4.1: The CheddaBoards autoload is resolved at runtime (via
+#          /root/CheddaBoards) instead of as a bare identifier, so the file
+#          parses cleanly on first import before the plugin is enabled. No
+#          behaviour change once the autoload exists; if it doesn't, the
+#          popup logs one push_error and frees itself.
 # v1.4.0: Closing the popup no longer cancels the sign-in. The button is a
 #          "Close": it hides the popup and leaves the SDK polling, so a
 #          player who dismisses the QR before their phone finishes still
@@ -69,7 +74,19 @@ var _expires_at: float = 0.0
 var _is_active: bool = false
 var _verification_url: String = ""
 
+# The SDK autoload, looked up at runtime. A bare `CheddaBoards` identifier
+# only resolves once the plugin has registered the autoload, which produces
+# a wall of parse errors on first import of the addon. This keeps the file
+# quiet until the plugin is enabled.
+var _cb: Node = null
+
 func _ready():
+	_cb = get_node_or_null("/root/CheddaBoards")
+	if _cb == null:
+		push_error("DeviceCodeLogin: CheddaBoards autoload not found. Enable the plugin under Project > Project Settings > Plugins.")
+		queue_free()
+		return
+
 	cancel_button.pressed.connect(_on_cancel_pressed)
 	link_button.pressed.connect(_on_link_pressed)
 	
@@ -80,10 +97,10 @@ func _ready():
 	
 	_fit_mobile()
 
-	CheddaBoards.device_code_received.connect(_on_device_code_received)
-	CheddaBoards.device_code_approved.connect(_on_device_code_approved)
-	CheddaBoards.device_code_expired.connect(_on_device_code_expired)
-	CheddaBoards.device_code_error.connect(_on_device_code_error)
+	_cb.device_code_received.connect(_on_device_code_received)
+	_cb.device_code_approved.connect(_on_device_code_approved)
+	_cb.device_code_expired.connect(_on_device_code_expired)
+	_cb.device_code_error.connect(_on_device_code_error)
 
 	_show_requesting_state()
 
@@ -105,8 +122,13 @@ func _process(_delta):
 
 ## Start the device code sign-in flow. Call this after adding to tree.
 func start_sign_in():
+	if _cb == null:
+		_cb = get_node_or_null("/root/CheddaBoards")
+		if _cb == null:
+			push_error("DeviceCodeLogin: CheddaBoards autoload not found.")
+			return
 	_show_requesting_state()
-	CheddaBoards.login_with_device_code()
+	_cb.login_with_device_code()
 
 ## Static helper: instantiate, add to parent, and start flow in one call.
 static func show_sign_in(parent: Node) -> Node:
@@ -122,8 +144,8 @@ static func show_sign_in(parent: Node) -> Node:
 func _on_device_code_received(user_code: String, verification_url: String, qr_data_url: String):
 	_is_active = true
 	var secs = 300
-	if CheddaBoards.has_method("get_device_code_seconds_remaining"):
-		secs = CheddaBoards.get_device_code_seconds_remaining()
+	if _cb.has_method("get_device_code_seconds_remaining"):
+		secs = _cb.get_device_code_seconds_remaining()
 		if secs <= 0:
 			secs = 300
 	_expires_at = Time.get_unix_time_from_system() + secs
@@ -288,13 +310,16 @@ func _show_requesting_state():
 	cancel_button.visible = true
 
 func _cleanup():
-	if CheddaBoards.device_code_received.is_connected(_on_device_code_received):
-		CheddaBoards.device_code_received.disconnect(_on_device_code_received)
-	if CheddaBoards.device_code_approved.is_connected(_on_device_code_approved):
-		CheddaBoards.device_code_approved.disconnect(_on_device_code_approved)
-	if CheddaBoards.device_code_expired.is_connected(_on_device_code_expired):
-		CheddaBoards.device_code_expired.disconnect(_on_device_code_expired)
-	if CheddaBoards.device_code_error.is_connected(_on_device_code_error):
-		CheddaBoards.device_code_error.disconnect(_on_device_code_error)
+	if _cb == null:
+		queue_free()
+		return
+	if _cb.device_code_received.is_connected(_on_device_code_received):
+		_cb.device_code_received.disconnect(_on_device_code_received)
+	if _cb.device_code_approved.is_connected(_on_device_code_approved):
+		_cb.device_code_approved.disconnect(_on_device_code_approved)
+	if _cb.device_code_expired.is_connected(_on_device_code_expired):
+		_cb.device_code_expired.disconnect(_on_device_code_expired)
+	if _cb.device_code_error.is_connected(_on_device_code_error):
+		_cb.device_code_error.disconnect(_on_device_code_error)
 
 	queue_free()
