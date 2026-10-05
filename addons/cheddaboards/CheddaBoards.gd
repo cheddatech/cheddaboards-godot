@@ -1,4 +1,4 @@
-# CheddaBoards.gd v2.3.0
+# CheddaBoards.gd v2.3.1
 # CheddaBoards integration for Godot 4.x
 # https://github.com/cheddatech/CheddaBoards-Godot
 # https://cheddaboards.com
@@ -9,6 +9,20 @@
 #   Player authenticates on their phone at cheddaboards.com/link
 # - Score submissions, play sessions, achievements: all via HTTP API
 #
+# v2.3.1:
+#   - Fixed: switching player with set_player_id() (shared devices, local
+#     rosters) kept the previous player's state. _player_exists_on_backend
+#     stayed true, so change_nickname() for a brand-new ID took the server
+#     path (PUT for a player that doesn't exist) instead of holding the name
+#     for the first submit, and the profile cache / pending rename / play
+#     session carried over. set_player_id() now resets all per-player state
+#     when the ID actually changes, and logout() resets the existence /
+#     pending-rename flags too. Switch = set_player_id() + login_anonymous()
+#     + get_player_profile(); logout() first is no longer required.
+#   - Fixed: a per-player response (profile, rename, rank, session, submit)
+#     still in flight when the player ID changed was applied to the NEW
+#     player. Requests now carry a player generation; responses and queued
+#     requests from a previous generation are dropped and logged.
 # v2.3.0 (minor bump: adds public API and changes two behaviours, see below):
 #   - Device code linking survives a page reload. On phones and
 #     home-screen web apps, tapping the link URL can reload the game
@@ -341,6 +355,14 @@ var _nickname: String = ""
 #   fallback when a 2xx/ok response doesn't echo the nickname back (the old
 #   handler silently did NOTHING in that case).
 var _player_exists_on_backend: bool = false
+# Bumped whenever the active player changes. Per-player requests record the
+# generation they were sent under; a response (or queued request) from an
+# older generation is dropped, so a profile fetched for the previous person
+# can't be stamped onto the next one mid-switch.
+var _player_gen: int = 0
+const PER_PLAYER_TYPES := ["player_profile", "change_nickname", "change_nickname_anonymous",
+	"player_rank", "scoreboard_rank", "start_play_session", "end_play_session",
+	"submit_score", "submit_score_to_board", "unlock_achievement"]
 var _pending_server_nickname: String = ""
 var _pending_rename_attempts: int = 0
 var _requested_nickname: String = ""
@@ -503,6 +525,17 @@ func _build_headers(request_type: String = "") -> PackedStringArray:
 
 func _on_http_request_completed(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
 	var was_direct = _current_request_data.get("went_direct", false)
+	
+	# The active player changed while this request was in flight: its result
+	# belongs to the previous person. Drop it rather than apply it to the new one.
+	if _is_stale_for_player(_current_request_data):
+		_log("Ignoring %s response: it was for the previous player" % _current_endpoint)
+		_is_refreshing_profile = false
+		_is_submitting_score = false
+		_current_meta = {}
+		_http_busy = false
+		_process_next_request()
+		return
 	
 	if result != HTTPRequest.RESULT_SUCCESS:
 		if was_direct:
@@ -925,7 +958,8 @@ func _make_http_request(endpoint: String, method: int, body: Dictionary, request
 		"method": method,
 		"body": body,
 		"request_type": request_type,
-		"meta": meta
+		"meta": meta,
+		"gen": _player_gen
 	}
 	
 	if _http_busy:
@@ -1023,8 +1057,15 @@ func _process_next_request() -> void:
 		return
 	
 	var next_request = _request_queue.pop_front()
+	if _is_stale_for_player(next_request):
+		_log("Dropping queued %s: it was for the previous player" % next_request.request_type)
+		_process_next_request()
+		return
 	_log("Processing queued request: %s" % next_request.request_type)
 	_execute_http_request(next_request)
+
+func _is_stale_for_player(request_data: Dictionary) -> bool:
+	return request_data.request_type in PER_PLAYER_TYPES and request_data.get("gen", _player_gen) != _player_gen
 
 # ============================================================
 # PROFILE MANAGEMENT
@@ -1222,8 +1263,27 @@ func set_session_token(token: String) -> void:
 	_save_session()
 
 func set_player_id(player_id: String) -> void:
-	_player_id = _sanitize_player_id(player_id)
+	var new_id := _sanitize_player_id(player_id)
+	if new_id != _player_id:
+		# A different player: drop everything that belonged to the previous
+		# one, otherwise their cached profile/name leaks into the next person
+		# and change_nickname() for a brand-new ID is sent to the server.
+		_reset_player_state()
+	_player_id = new_id
 	_log("Player ID set: %s" % _player_id)
+
+## Per-player state. Called when the active player ID changes and on logout.
+func _reset_player_state() -> void:
+	_player_gen += 1
+	_cached_profile = {}
+	_nickname = ""
+	_nickname_just_changed = false
+	_player_exists_on_backend = false
+	_pending_server_nickname = ""
+	_pending_rename_attempts = 0
+	_requested_nickname = ""
+	_play_session_token = ""
+	_last_profile_refresh = 0.0
 
 func get_player_id() -> String:
 	if not _player_id.is_empty():
@@ -1445,11 +1505,9 @@ func login_chedda_id(nickname: String = "") -> void:
 	login_internet_identity(nickname)
 
 func logout() -> void:
-	_cached_profile = {}
+	_reset_player_state()
 	_auth_type = ""
-	_nickname = ""
 	_session_token = ""
-	_play_session_token = ""
 	_clear_saved_session()
 	cancel_device_code()
 	logout_success.emit()
