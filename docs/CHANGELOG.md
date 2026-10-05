@@ -5,6 +5,16 @@ All notable changes to CheddaBoards Godot 4 SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Template — 2026-10-06
+
+- SDK updated to 2.3.1. Switching player with `set_player_id()` (shared
+  devices, local rosters) now resets the previous player's cached profile,
+  name, pending rename and play session, and a response still in flight
+  for the previous player is dropped instead of being applied to the new
+  one. Shared-device guide: https://docs.cheddaboards.com/concepts/player-names#shared-devices-several-players-one-install
+  Full notes in the [SDK changelog](https://github.com/cheddatech/cheddaboards-godot-addon/blob/main/CHANGELOG.md).
+- Vendored addon no longer carries the unused `icon.png`.
+
 ## Template — 2026-09-29
 
 - SDK updated to 2.3.0. Device code linking survives a page reload, two
