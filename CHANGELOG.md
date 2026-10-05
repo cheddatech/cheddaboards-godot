@@ -1,0 +1,1448 @@
+# Changelog
+
+All notable changes to CheddaBoards Godot 4 SDK will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## Template — 2026-10-06
+
+- SDK updated to 2.3.1. Switching player with `set_player_id()` (shared
+  devices, local rosters) now resets the previous player's cached profile,
+  name, pending rename and play session, and a response still in flight
+  for the previous player is dropped instead of being applied to the new
+  one. Shared-device guide: https://docs.cheddaboards.com/concepts/player-names#shared-devices-several-players-one-install
+  Full notes in the [SDK changelog](https://github.com/cheddatech/cheddaboards-godot-addon/blob/main/CHANGELOG.md).
+- Vendored addon no longer carries the unused `icon.png`.
+
+## Template — 2026-09-29
+
+- SDK updated to 2.3.0. Device code linking survives a page reload, two
+  board helpers that never worked are fixed, failed achievement batches
+  surface an error. Full notes: SDK section below.
+- DeviceCodeLogin popup (v1.4.0) now ships inside the addon at
+  addons/cheddaboards/ui/. The template's own copy under scenes/ and
+  scripts/ is removed; MainMenu loads the addon one. Closing the popup
+  is a soft dismiss: the SDK keeps polling and the sign-in completes in
+  the background.
+- MainMenu 2.1.10: the device-code upgrade completes even if the popup
+  was closed before approval.
+  
+## v2.2.7 — "Names That Stick" (2026-09-15)
+
+### SDK (CheddaBoards.gd v2.2.7)
+- **Rename race fixed at SDK level**: `change_nickname()` gated the server
+  rename on having a cached profile, so a rename fired while the cache was
+  empty (right after a first submit, after a failed profile fetch) took a
+  local-only branch — `nickname_changed` fired, nothing reached the server.
+  Now gated on backend existence (set by any successful submit or profile
+  load), with pending-name resync on profile load and a requested-name
+  fallback when a 2xx rename response omits the nickname. The MainMenu
+  guard from v2.2.6 stays as defense-in-depth; drop-in integrations no
+  longer need it.
+- Also in SDK 2.2.7: `get_achievements()` repaired (reads from the
+  profile), submits no longer overwrite a returning player's saved name
+  with a generated one, batch achievement sync reports the real synced
+  count. Full detail in the
+  [SDK changelog](https://github.com/cheddatech/cheddaboards-godot-addon/blob/main/CHANGELOG.md).
+- **One stable generated name**: the server assigns `Player_NNNN` when an
+  account is first created and keeps it until the player picks their own —
+  the client never invents names.
+
+### Debug logging — rollout complete
+- Every template script now routes its output through a gated `_log`,
+  silent by default, enabled per-script or globally via
+  `CheddaBoards.debug_logging = true` (started in v2.2.6 with MainMenu).
+  The F9 debug dump still prints unconditionally — that's its job.
+- Scene versions: MainMenu 2.1.9, Leaderboard 2.1.1, Game wrapper 1.1.3,
+  Achievements 2.2.3, AchievementsView 1.2.1, AchievementNotification
+  2.0.1, MobileUI gated.
+
+### Docs
+- Documentation moved to [docs.cheddaboards.com](https://docs.cheddaboards.com).
+  The old pages under `docs/` are now link-preserving stubs pointing to
+  their new homes; this changelog stays here.
+  
+## v2.2.6 — "Request Diet" (2026-09-04)
+
+### ⚠️ Behavior change
+- `get_leaderboard()` default limit is now **100** entries (was 1000),
+  matching every other getter. Pass a limit explicitly if you need deeper
+  results: `get_leaderboard("score", 1000)`. To find a specific player's
+  position, use `get_player_rank()` instead of scanning the board.
+
+### SDK (CheddaBoards.gd v2.2.6)
+- **Read de-duplication**: an identical read request (same endpoint)
+  already queued or in flight is dropped instead of sent twice. Score
+  submits and other writes are never de-duplicated.
+- **Batch achievement signals fixed**: the async batch path skipped
+  response handling, so batches synced server-side but
+  `achievement_unlocked` / `achievements_loaded` never fired and sync
+  counters were left dirty.
+
+### Leaderboard scene (v2.1.0)
+- Auto-refresh default 4s → **30s** (4s was a demo cadence shipping as
+  the default). Still exported — lower it per-scene for recordings.
+- **Refresh-on-submit**: your own score appears on the board immediately;
+  the polling interval now only governs how fast rivals' scores arrive.
+- **Refresh-on-show**: one-shot refresh when the screen becomes visible
+  stale or after a submit happened while it was hidden.
+- `LEADERBOARD_LIMIT` 1000 → 100.
+
+### Main menu (v2.1.8)
+- Anonymous-boot stats loop watches the cache instead of requesting a
+  refresh every 0.5s; one genuine fallback refresh at ~3s.
+- Rank fetches rate-limited to one per 5s (rank is never in the profile
+  payload, so every stats repaint re-requested it).
+- **Rename race fixed**: the stale profile cache could revert a new
+  nickname and save the old one to disk; the profile→local sync now
+  pauses while a rename is in flight, the confirmed name is persisted,
+  and `nickname_error` is wired so rejected renames show feedback.
+- Debug logging off by default; `CheddaBoards.debug_logging = true` is
+  the master switch for the whole stack.
+
+### Game wrapper (v1.1.2)
+- Game-over title thresholds accept any exported array length instead of
+  hard-indexing four entries (trimmed arrays crashed on first game over).
+
+### Achievements (v2.2.1)
+- **Delta sync**: only unsynced achievements are sent, confirmed via the
+  server profile and the SDK's batch response. The menu no longer pushes
+  the full set on every visit — anonymous players sync on login like
+  account holders, at the settled-identity moment.
+
+### Repo & assets
+- Godot 3.6 backport removed — now lives in `cheddaboards-godot3-addon`.
+- `.uid` and `.import` files tracked for stable references across clones.
+- Images trimmed ~11MB: screenshots resized + compressed, orphaned logo
+  removed, remaining assets sized to their jobs (icon.png kept at 1024px
+  — it's also the boot splash).
+
+Net effect: an open leaderboard drops from ~2 requests/4s at 1000
+entries to ~2/30s at 100, anonymous boot from ~5–6 requests to 3, and
+your own score appears faster than before.
+
+---
+
+## [2.2.5] - 2026-09-01
+
+### Leaderboards, Direct from the Canister
+
+Backwards-compatible release. Leaderboard reads now come straight from the CheddaBoards canister over the IC HTTP gateway instead of routing through the API proxy — noticeably faster board loads with no cold-start lag, and an automatic proxy fallback so nothing gets less reliable. Also hardens the SDK's internal request dispatch against a rare race. No breaking changes, no migration required.
+
+### Added
+
+#### Direct Canister Reads (`CheddaBoards.gd`)
+- `get_scoreboard()` — and the `get_weekly_leaderboard()` / `get_daily_leaderboard()` / `get_alltime_leaderboard()` / `get_monthly_leaderboard()` helpers built on it — now fetches straight from the CheddaBoards canister (`fdvph-sqaaa-aaaap-qqc4a-cai.raw.icp0.io`), skipping the proxy hop entirely
+- The response is byte-for-byte the same shape as the proxy's, so existing `scoreboard_loaded` handlers work unchanged — same JSON, same signals, same everything from your game code's point of view
+- Direct reads are **keyless and header-free**: public board data only, no API key travels on this path, and web exports stay CORS-simple with no preflight
+- Writes, ranks, archive readers (`get_scoreboard_archives()`, `get_last_archived_scoreboard()`, `get_last_week_scoreboard()`, and friends), and all authenticated calls stay on the proxy unchanged
+
+#### Automatic Proxy Fallback
+- If a direct read can't get through — a network that filters `raw.icp0.io`, a gateway hiccup, a non-JSON gateway error page — the SDK silently retries the identical request via the proxy
+- After **three consecutive** direct failures, the SDK stops trying direct for the rest of the session, so affected players pay the detour cost at most three times and then behave exactly like v2.2.4
+- One direct success resets the failure count
+- A genuine `"Scoreboard not found"` from the canister is treated as the real answer, not retried — the canister is the source of truth
+
+### Fixed
+
+#### Request Dispatch Race
+- Internal retries now route through the SDK's request queue instead of grabbing the `HTTPRequest` node directly, `_process_next_request()` guards against double-dispatch, and a busy node **requeues** the request for the next idle frame instead of dropping it with an error
+- Fixes rare `HTTPRequest is processing a request` errors (and silently lost requests) when completions and queued requests landed in the same frame
+
+### Migration from v2.2.4
+
+No code changes required — replace `CheddaBoards.gd`. One behavior note: board reads now hit a different host (`fdvph-sqaaa-aaaap-qqc4a-cai.raw.icp0.io`), so if you ship a web build with a strict `connect-src` CSP, add that origin — otherwise the SDK just quietly uses the proxy fallback and players never notice. With `debug_logging` on, each read logs which path served it.
+
+---
+
+## [2.2.4] - 2026-08-15
+
+### Account Linking, Hardened
+
+Backwards-compatible release. A full hardening pass on account linking, driven by the first external adoption of device code auth: the upgrade signals now behave exactly as documented, leaderboards show the right sign-in provider, and players keep the names they chose when linking creates their account. Nickname validation is also unified onto one canonical rule across the SDK, proxy, and canister. No breaking changes, no migration required.
+
+### Added
+
+#### Nickname Seeding (`CheddaBoards.gd`)
+- `login_with_device_code()` now sends the player's current in-game nickname with the device code request, so an account **created** at link time is born with the name they chose instead of a generated `Player_N`
+- If the player's anonymous profile still holds that name at creation (they played before linking), the account is briefly suffixed and the SDK reclaims the exact name right after migration, emitting `nickname_changed` — connect `nickname_changed` rather than caching the name from `device_code_approved` if you display it persistently
+- Existing accounts are never renamed by linking — seeding only affects accounts born at link time
+- Requires the current API (falls back gracefully to previous behavior against older deployments)
+
+### Fixed
+
+#### `account_upgrade_failed` Never Fired
+- The signal was declared but never emitted — failed migrations were logged internally and silently dropped, so games listening for upgrade failures never heard about them. Emits added on every failure path (HTTP errors, rejected responses, and the missing-prerequisites early return)
+- Every migration attempt now ends in **exactly one** of `account_upgraded(profile, migration)` or `account_upgrade_failed(reason)`
+- One `reason` to know: `"Anonymous account not found"` means the player linked before ever submitting a score — there was nothing to migrate, and it's safe to ignore in your UX
+
+#### Wrong Provider on Linked Accounts
+- `_auth_type` was hardcoded to `"google"` after device code auth regardless of which provider the player chose, so Apple linkers showed the wrong auth badge on leaderboards. The SDK now reads the real provider from the server (falling back to `"google"` against older deployments)
+
+### Changed
+
+- `change_nickname()` now validates against the canonical platform rule — **3–16 characters, letters, numbers, and underscores** — with the same error strings the server uses (previously it only checked for a 2-character minimum, letting names through that the server would reject). Rejections are permanent for that name; don't retry the same value
+- Docs: [Authentication](docs/guides/authentication.md) and [Device Code Login](docs/guides/device-code-login.md) rewritten with the full linking semantics — signal ordering, cross-device merge behavior, one-way linking, and testing tips — and [Signals Reference](docs/guides/signals-reference.md) annotations updated to match
+
+### Migration from v2.2.3
+
+No code changes required. Two behavior notes: handlers already connected to `account_upgrade_failed` will start receiving events (including the benign `"Anonymous account not found"` reason above), and nicknames shorter than 3 or longer than 16 characters now fail client-side with the same error the server was already returning.
+
+---
+
+## [2.2.3] - 2026-08-09
+
+### Stay Signed In
+
+Backwards-compatible release. Logged-in players now stay logged in across page reloads and app restarts — previously the session token from device code auth lived only in memory, so every fresh launch of a web build meant repeating device code auth. Also fixes achievements not being saved when linking an account. No breaking changes, no migration required.
+
+### Added
+
+#### Session Persistence (`CheddaBoards.gd`)
+- The session token from device code auth is now saved to `user://cheddaboards_session.cfg` (token, nickname, auth type) and restored in `_ready()` **before** `sdk_ready` fires — so a menu that checks `has_account()` on startup routes returning players straight to its logged-in state with no code changes
+- Anonymous players were already persistent via the device ID; this brings signed-in accounts to parity
+- The restore is optimistic — no validation round-trip blocks startup. The token is validated naturally by the first authenticated request
+- New `session_expired()` signal — fired when the server rejects the stored session token (`401`/`403`). The saved session is cleared and `logout_success` also fires, so existing menus fall back to their login screen unchanged; one failed request, then a clean sign-in prompt rather than an error loop
+
+### Fixed
+
+#### Achievements Lost on Account Linking
+- Achievements unlocked before linking an account via device code auth weren't being saved to the linked account. Linking now carries achievements over correctly, so nothing earned as an anonymous player is lost when upgrading
+
+### Changed
+
+- `logout()` now also deletes the saved session file, so logging out on a shared device genuinely forgets the account
+- `set_session_token()` persists the token it's given, keeping custom login flows covered
+
+### Migration from v2.2.2
+
+No code changes required. Session persistence is automatic on update — players sign in once via device code auth and stay signed in until they log out or the server expires the session. `session_expired` is additive; connect to it only if you want to react to expiry separately from a normal logout.
+
+---
+
+## [2.2.2] - 2026-06-26
+
+### Mobile Web Fixes & Category Boards
+
+Backwards-compatible release. Two mobile HTML5-export fixes (name entry and touch scrolling) plus a new scoreboard type — **category boards** — for running per-level / per-mode leaderboards under a single game. No breaking changes, no migration required.
+
+### Added
+
+#### Category Boards (targeted scoreboards)
+- New **category board** scoreboard type for per-level, per-mode, or per-category leaderboards under one game — no separate game registration per board
+- A category board is a scoreboard with a `Custom` reset period: it never resets or archives, and is written **only** by targeted submissions
+- `submit_score_to_board(scoreboard_id, score, streak)` — submit a score to one specific board by ID
+- Plain `submit_score()` fans out to your timed boards (all-time / daily / weekly / monthly) and now **skips** category boards, so a normal submission never lands on a per-level board
+- Category submissions are independent of the player's all-time / total score, so per-level scores don't inflate the game-wide leaderboard
+- Submitting to a board that doesn't exist (or targeting a timed board) returns a clear error rather than silently creating or mis-routing the score
+- Display uses the existing `get_scoreboard(id)` / `list_scoreboards()` — no new fetch API to learn
+
+> Category boards are created in the dashboard: **Game → Scoreboards → Add Scoreboard → Reset Period = `Custom`**. Create one ID per thing you want to rank (e.g. `level-01` … `level-28`, `time-trial`, `boss-rush`), then point `submit_score_to_board()` at it.
+
+### Fixed
+
+#### Mobile Web — Name Entry (`MainMenu.gd`)
+- Godot's in-engine `LineEdit` can't receive typed characters on mobile browsers — backspace registered but typing didn't — which left name entry effectively broken in the HTML5 export. On web, `_show_name_entry_panel()` now hands off to a real browser HTML input via `JavaScriptBridge` and feeds the result back through the normal confirm flow unchanged. Native builds are untouched (gated behind `OS.has_feature("web")`).
+- **Requires two helpers in your web export shell:**
+  - `chedda_prompt_name(default, mode, minLen, maxLen)` — opens the HTML input. `mode` is `"first_play"` or `"rename"`.
+  - `chedda_poll_name()` — returns `null` while open, otherwise a JSON string `{"cancelled": bool, "name": string}`, cleared after read.
+
+#### Mobile Web — Touch Scrolling
+- Touch-drag scrolling now works in `ScrollContainer`-based UIs (the leaderboard and other scrollable lists) in the HTML5 export on mobile. Previously these lists couldn't be dragged on touch devices.
+
+### Migration from v2.2.1
+
+No code changes required. Category boards are additive — opt in by creating a `Custom`-period scoreboard and calling `submit_score_to_board()`; existing games keep working unchanged. For the mobile-web name fix, make sure the two `chedda_*` helpers are present in your web export shell (the repo's template shell ships with them).
+
+---
+
+## [2.2.1] - 2026-06-09
+
+### Clean Slate
+
+Backwards-compatible patch. The Template wrapper no longer carries CheddaClick-specific UI into projects that drop in their own game. No SDK changes — `CheddaBoards.gd` is untouched; this is `Game.gd` / `Game.tscn`, the example `Achievements.gd`, and documentation only.
+
+### Added
+
+#### Template Wrapper (`Game.gd`)
+- `main_menu_scene` and `leaderboard_scene` export vars — the game-over **Main Menu** / **Leaderboard** buttons route through these instead of hardcoded scene paths, so a project with a different scene layout no longer gets silently dead buttons
+
+### Changed
+
+#### Template Wrapper (`Game.gd`)
+- HUD panels (score/combo, timer, level/misses) now render only when your game scene declares the matching optional signal (`score_changed` / `stats_changed` / `time_changed`). A game that emits none shows a clean empty bar instead of leftover placeholder text
+- Game-over stat fields (Level / Accuracy / Max Combo) now appear only for the keys present in your `game_over` stats dict — omitted keys are hidden rather than displayed as `0` / `x1`
+
+#### Achievements (`autoloads/Achievements.gd`)
+- Marked the achievement definitions and the `check_*` unlock conditions as CheddaClick example content to replace (comments only — no behavior change)
+
+#### Documentation
+- Guides and quickstarts aligned with the conditional HUD / game-over behavior
+- Corrected the achievement-definition examples (`var achievements`, not `const ACHIEVEMENTS`) and the `check_game_over` description to match what the shipped checks evaluate
+
+### Migration from v2.2.0
+
+No code changes required. Existing games keep working as-is. If your game relied on the wrapper showing placeholder HUD panels or zeroed game-over stats, emit the relevant optional signals / include the relevant `game_over` stat keys to bring those fields back.
+
+---
+
+## [2.2.0] - 2026-05-31
+
+### Polish, Privacy & Pause-Safety
+
+Backwards-compatible release focused on production hardening: signal completeness, pause-safe HTTP, log redaction, and legacy method aliases. One breaking change to `profile_loaded`.
+
+### Added
+
+#### Profile
+- `profile_loaded` signal now emits `play_count` as a 5th argument
+- Internal `_update_cached_profile` populates play_count from API response and emits it directly via the signal, removing the need for handlers to dig into `get_cached_profile()` afterwards
+
+#### Privacy & Logging
+- `_redact_code()` helper — masks device user codes in log output (shows first 3 chars only)
+- `_redact_email()` helper — masks emails in log output (first char + full domain)
+- Device codes and emails redacted automatically at the three log lines that previously emitted them raw (code-received, code-expired, approval)
+- `debug_status()` output now redacts the active device code
+
+#### Lifecycle
+- `_notification()` handler watches for `NOTIFICATION_APPLICATION_FOCUS_IN` and `NOTIFICATION_APPLICATION_RESUMED` during device-code polling, firing an immediate out-of-cadence poll. Eliminates the up-to-5-second delay players previously experienced after completing sign-in on their phone and returning to the game.
+
+#### Backwards Compatibility Aliases
+Legacy method names from earlier SDK versions retained so games written against older APIs continue to work without code changes:
+- `sync_achievements(ids)` → `unlock_achievements_batch`
+- `submit_score_external(player_id, score, streak, _rounds, nickname)` — API-key-mode external player submit
+- `unlock_achievement_external(player_id, achievement_id)` — API-key-mode external achievement
+- `login_as_guest(nickname)` → `login_anonymous`
+- `login_ii()` → `login_with_device_code`
+- `get_profile()` → `refresh_profile`
+- `get_current_user()` → `get_cached_profile`
+- `get_session_id()` → returns `_session_token`
+- `configure(game_id)` → `set_game_id`
+- `prompt_guest_name()` — deprecation stub
+- `is_logged_in()` → `is_authenticated`
+
+### Changed
+
+#### Pause-Safe Processing
+- Autoload SDK node, the main `HTTPRequest`, all async `HTTPRequest` instances, and the device-code poll Timer now set `process_mode = Node.PROCESS_MODE_ALWAYS`
+- Fixes hung score submits when the scene tree is paused (e.g. during a game-over continue screen). Previously HTTP responses landed silently, signals never fired, and in-flight submits appeared to hang indefinitely.
+
+#### Defaults
+- `debug_logging` default flipped from `true` to `false` — clean stdout for shipped games
+- `api_key` and `game_id` cleared to `""` — set them at runtime via `set_api_key()` and `set_game_id()` in your game's `_ready()` instead of pasting into `CheddaBoards.gd`
+
+#### Anonymous Nickname Semantics
+- `login_anonymous(nickname="")` with no name argument keeps `_nickname` as an empty string instead of auto-generating `Player_dev_xxxxxx`
+- `get_nickname()` filters both `Player_p_*` and `Player_dev_*` placeholder prefixes and returns `""` for unnamed anonymous players
+- UIs should display "Guest" (or equivalent) when `get_nickname()` returns empty
+
+#### Profile Refresh
+- `refresh_profile()` always allows the first call (when `_last_profile_refresh == 0.0`); the cooldown window applies only from the second call onward. Fixes a silent no-op when the function was called within `PROFILE_REFRESH_COOLDOWN` of game boot.
+
+#### Nickname Changes
+- `change_nickname(new_nickname: String = "")` accepts a no-arg call and emits a clean `nickname_error` for empty or sub-2-character input
+
+#### Non-Fatal Scoreboard 404
+- `_on_http_request_completed` now treats a 404 on `get_scoreboard`, `scoreboard_rank`, and `list_scoreboards` as non-fatal — emits `scoreboard_error` rather than `push_error`. A scoreboard that isn't configured for the game is a normal state, not an error.
+
+### Breaking Changes
+
+- **`profile_loaded` signal gained a 5th argument: `play_count: int`.** Existing 4-arg handlers will silently fail to connect in Godot 4.x. Add the trailing `play_count: int` parameter to your `_on_profile_loaded` handler.
+
+### Migration from v2.1.0
+
+```gdscript
+# Before
+func _on_profile_loaded(nickname, score, streak, achievements):
+    ...
+
+# After
+func _on_profile_loaded(nickname, score, streak, achievements, play_count):
+    ...
+```
+
+If your game was relying on the SDK's hardcoded `api_key` / `game_id` defaults (e.g. from a development build), set them explicitly in `_ready()` before any other CheddaBoards call:
+
+```gdscript
+func _ready():
+    CheddaBoards.set_api_key("cb_your-game_xxxxxxxxx")
+    CheddaBoards.set_game_id("your-game-id")
+```
+
+If you were tailing stdout in production with `debug_logging = true`, you'll find the SDK is now quiet by default. Flip it back on while investigating an issue:
+
+```gdscript
+CheddaBoards.debug_logging = true
+```
+
+---
+
+## [2.1.0] - 2026-05
+
+### QR Code Login
+
+Device-code sign-in now displays a scannable QR code. Players point their phone camera at the screen and land directly on the verification page with their code pre-filled — no typing required.
+
+### Added
+
+#### Device Code Auth
+- `device_code_received` signal now emits a third argument: `qr_data_url: String`
+- QR data URL is a base64 PNG (e.g. `data:image/png;base64,iVBORw0KGgo...`) encoding the full verification URL with code pre-filled
+- Falls back gracefully if the API returns null — the raw code remains visible and the popup continues to function normally
+
+#### Reference Implementation
+- `DeviceCodeLogin.tscn` ships with a `TextureRect` (200×200) for displaying the QR code
+- `DeviceCodeLogin.gd` includes `_set_qr_from_data_url()` — decodes base64 PNG data URL into an `ImageTexture` using `Marshalls.base64_to_raw()` and `Image.load_png_from_buffer()`
+- Instruction text switches to "Scan to sign in instantly:" when QR is present
+
+### Breaking Changes
+
+- **`device_code_received` signal now emits three arguments**: `(user_code: String, verification_url: String, qr_data_url: String)`
+- Any existing `_on_device_code_received` handler must be updated to accept the new third argument
+
+### Migration from v2.0.0
+
+```gdscript
+# Before
+func _on_device_code_received(user_code: String, verification_url: String):
+    ...
+
+# After
+func _on_device_code_received(user_code: String, verification_url: String, qr_data_url: String):
+    ...
+```
+
+---
+
+## [2.0.0] - 2026-04
+
+### HTTP-Only SDK
+
+Major architectural shift. The JavaScript bridge and web SDK dependency are gone. Every platform — Windows, Mac, Linux, mobile, web — now uses the same REST API paths. Social login moved to Device Code Auth so it works everywhere without OAuth SDKs or browser popups in your game.
+
+### Added
+
+#### Device Code Auth (Cross-Platform)
+- `login_with_device_code()` — unified method for Google, Apple, and Internet Identity sign-in via OAuth 2.0 Device Authorization Grant (RFC 8628)
+- Works identically on every platform: Windows, Mac, Linux, mobile, web, consoles
+- No OAuth SDKs required in your game — just two HTTP calls and a label to display the code
+- Cross-platform account linking: anonymous players can upgrade to Google/Apple from any platform, preserving scores and achievements
+
+#### Polling Infrastructure
+- `_start_device_code_polling()` / `_stop_device_code_polling()` — internal poll lifecycle management
+- `_poll_device_code_token()` — RFC 8628 compliant polling with configurable interval (default 5s)
+- Out-of-cadence poll support — focus-regain and manual triggers can fire a poll without waiting for the next scheduled tick
+- Signals: `device_code_received`, `device_code_approved`, `device_code_expired`, `device_code_error`
+
+#### REST API Surface
+- All endpoints documented and reachable via plain HTTP from any engine
+- `X-API-Key` header authentication for anonymous/API-key flows
+- Session token authentication for verified accounts (Google/Apple/II)
+- JWKS-based OAuth token verification on the server side
+
+### Changed
+
+#### Removed JavaScript Bridge
+- `JavaScriptBridge` dependency removed entirely
+- `template.html` no longer needed for SDK functionality (still required for custom HTML export shells if you want one)
+- `OS.get_name() == "Web"` platform branching removed throughout the SDK — one code path for all platforms
+
+#### Authentication
+- `login_google()` and `login_apple()` retained as convenience methods, both now route to `login_with_device_code()` internally
+- `login_internet_identity()` retained as alias, also routes to `login_with_device_code()`
+- Native builds no longer require platform-specific OAuth setup
+
+#### Score Submission
+- All scores submitted via `POST /scores` REST endpoint
+- Anti-cheat validation (play session tokens, score caps, streak limits) enforced server-side
+- Per-game configurable limits via developer dashboard — no client-side caps
+
+### Removed
+
+- JavaScript-side authentication state management
+- Browser popup login flows
+- Web-only authentication code paths
+- `OS.get_name() == "Web"` platform branching
+
+### Breaking Changes
+
+- **`login_google_device_code()` and `login_apple_device_code()` removed.** Use `login_with_device_code()` instead — provider selection happens on the verification page, not in the SDK call.
+- **JavaScript bridge functions removed.** Any code calling `JavaScriptBridge.eval()` to interact with the web SDK must be removed; use the REST API instead.
+- **`template.html` OAuth config no longer used by the SDK.** Existing `GOOGLE_CLIENT_ID` and `APPLE_SERVICE_ID` config in `template.html` is now inert. Direct OAuth flow is gone; all auth goes through device code.
+
+### Migration from v1.x
+
+1. **Replace login method calls:**
+
+   ```gdscript
+   # Before
+   CheddaBoards.login_google_device_code("PlayerName")
+   CheddaBoards.login_apple_device_code("PlayerName")
+   
+   # After
+   CheddaBoards.login_with_device_code()
+   ```
+
+2. **Remove any web-specific branching:**
+
+   ```gdscript
+   # Before
+   if OS.get_name() == "Web":
+       CheddaBoards.login_google()  # used JS bridge
+   else:
+       CheddaBoards.login_google_device_code()  # used device code
+   
+   # After
+   CheddaBoards.login_with_device_code()  # works everywhere
+   ```
+
+3. **Remove `JavaScriptBridge` calls** that interacted with the old web SDK.
+
+4. **Keep your `template.html`** if you want a custom export shell — it just no longer needs OAuth credentials in the CONFIG section.
+
+5. **No changes required** to score submission, leaderboards, achievements, or scoreboards — those APIs are unchanged.
+
+---
+
+## [1.10.0] - 2026-03-22
+
+### QR Code Login
+
+Device code sign-in now displays a scannable QR code. Players point their phone camera at the screen and are taken directly to the verification page with their code pre-filled — no typing required.
+
+### Added
+
+#### DeviceCodeLogin Scene
+- QR code display via `TextureRect` — rendered from a base64 PNG returned by the API
+- `_set_qr_from_data_url()` — decodes base64 PNG data URL directly into an `ImageTexture` using `Marshalls.base64_to_raw()` and `Image.load_png_from_buffer()`
+- Graceful QR fallback — if QR decode fails for any reason, the raw code remains visible and the popup continues to function normally
+- Instruction text updated to "Scan to sign in instantly:" when QR is present
+- "Or enter code manually:" fallback label shown beneath the QR
+
+#### API (v1.7.1)
+- `POST /auth/device/code` response now includes `qr_data_url` — a base64 PNG data URL encoding the full verification URL with code pre-filled
+- QR generation failure is non-fatal — `qr_data_url` returns `null` and the client falls back gracefully
+
+### Changed
+
+#### DeviceCodeLogin Scene
+- `URLLabel` and `EnterCodeLabel` replaced by `QRCode` (`TextureRect`, 200×200)
+- `FallbackLabel` added beneath QR for manual code entry
+- Panel height adjusted to accommodate QR layout
+- `DeviceCodeLogin.gd` bumped to v1.1.0
+
+### Breaking Changes
+
+- **`device_code_received` signal now emits three arguments**: `(user_code: String, verification_url: String, qr_data_url: String)`
+- Any existing `_on_device_code_received` handler must be updated to accept the new third argument
+
+### Migration from v1.9.1
+
+1. **Replace `DeviceCodeLogin.gd`** with v1.1.0
+2. **Replace `DeviceCodeLogin.tscn`** with updated scene
+3. **Update `CheddaBoards.gd`** — add `qr_data_url: String` as third param to the `device_code_received` signal definition and emit
+4. **Update any listeners** connected to `device_code_received` to accept the third argument:
+   ```gdscript
+   # Before
+   func _on_device_code_received(user_code: String, verification_url: String):
+
+   # After
+   func _on_device_code_received(user_code: String, verification_url: String, qr_data_url: String):
+   ```
+
+---
+
+## [1.9.1] - 2025-03-04
+
+### Setup Wizard Rewrite, Leaderboard Cleanup & Device Code Hardening
+
+Developer experience and reliability improvements. Setup Wizard rebuilt from scratch, leaderboard cleaned up, and device code auth stress-tested.
+
+### Changed
+
+#### Setup Wizard v2.0 (Complete Rewrite)
+- **Single-field setup**: Enter your API Key and everything configures automatically
+- **Auto-derived Game ID**: Extracted from API key format (`cb_gamename_xxxxx` → `gamename`)
+- **Live preview**: Game ID shown in real-time as you type your API key
+- **Dual-file sync**: API Key and Game ID written to both `CheddaBoards.gd` and `template.html`
+- **Autoload auto-fix**: Checks and repairs CheddaBoards, Achievements, and MobileUI autoloads
+- Reduced from ~750 lines to ~300 lines — no more unnecessary checks or configuration screens
+
+#### Leaderboard Cleanup
+- Leaderboard UI cleaned up and simplified
+- Leaderboard code refactored for clarity and maintainability
+- New leaderboard add functionality
+
+#### Device Code Authentication
+- Stress tested device code polling for reliability under load
+- Improved timeout and expiry handling
+- Verified concurrent user flows
+
+### Removed
+
+#### Setup Wizard
+- Removed Godot version check (unnecessary for Godot 4+ projects)
+- Removed required files scan
+- Removed Google/Apple OAuth credential configuration (no longer needed with device code auth)
+- Removed export preset checks
+- Removed project settings checks (stretch mode, viewport, main scene)
+- Removed "next steps" prose output
+- Removed utility functions (`get_project_status()`, `is_ready_to_export()`, `is_ready_for_native()`)
+
+### Migration from v1.9.0
+
+1. **Replace `SetupWizard.gd`** with v2.0
+2. **Run the wizard**: `File → Run` (or `Ctrl+Shift+X`)
+3. **Enter your API Key** — Game ID is now auto-detected, no separate field needed
+4. **Restart Godot** for changes to take effect
+
+**No breaking changes** — existing game code works without modification.
+
+---
+
+## [1.9.0] - 2025-02-23
+
+### Device Code Authentication & Cross-Platform Account Linking
+
+Google and Apple Sign-In now works on every platform — no browser popups, no OAuth SDKs needed in your game.
+
+### Added
+
+#### Device Code Auth (RFC 8628)
+- `login_google_device_code(nickname)` — Start Google device code flow
+- `login_apple_device_code(nickname)` — Start Apple device code flow
+- `cancel_device_code()` — Cancel ongoing device code flow
+- Signal: `device_code_received(url: String, code: String, expires_in: int)`
+- Signal: `device_code_expired()`
+- Game displays code and URL, player signs in on their phone, game picks up session via polling
+- Works on Windows, Mac, Linux, Mobile, Web — any platform that can make HTTP requests
+
+#### DeviceCodeLogin Scene
+- `scenes/DeviceCodeLogin.tscn` — Ready-made UI for device code flow
+- `scripts/DeviceCodeLogin.gd` — Handles code display, countdown, and polling
+
+#### Cross-Platform Account Linking
+- Anonymous players can upgrade to Google/Apple via device code on any platform
+- Preserves all scores, achievements, and progress
+- Enables cross-device sync
+
+### Changed
+- `CheddaBoardsWeb.gd` and `CheddaBoardsNative.gd` merged into `CheddaBoards.gd`
+- Account upgrade now works on all platforms (previously web-only)
+- Authentication table expanded with Native/Mobile/Web columns
+
+### Documentation
+- `SETUP_WEB.md` — New dedicated web setup guide
+- All docs updated to v1.9.0
+- Removed Chedda ID / Internet Identity references (unstable, removed for now)
+- Removed debug shortcut keys
+- Archive numbers corrected: daily (90), monthly (12), weekly (52)
+
+---
+
+## [1.7.0] - 2025-02-05
+
+### Added
+- **Modular Game Wrapper Architecture** - Game.gd/Game.tscn now acts as a wrapper handling all CheddaBoards integration
+  - Drop in ANY game scene - just emit 4 signals and you're done
+  - Your game stays clean - no SDK code mixed with gameplay
+  - Example game (CheddaClick) included in `example_game/` folder
+- **Google/Apple OAuth (Web)** - Full OAuth sign-in restored and stable
+  - Direct Google/Apple Sign-In for new players on web
+  - Requires your OAuth credentials in template.html (configure via Setup Wizard)
+- **Account Upgrade (Web)** - Anonymous players can link to Google or Apple
+  - Preserves all scores and achievements
+  - Enables cross-device sync
+  - Available from the Anonymous Dashboard panel
+- **Clean Folder Structure** - Reorganised project layout
+  - `scenes/` - All .tscn files
+  - `scripts/` - All .gd files
+  - `autoloads/` - Achievements.gd, MobileUI.gd
+  - `example_game/` - CheddaClick example
+  - `addons/cheddaboards/` - SDK only
+- **MobileUI Autoload** - Mobile scaling handler
+- **Updated Setup Wizard** - Checks new folder structure, auto-configures all autoloads
+
+### Changed
+- Game wrapper separates gameplay from SDK integration
+- Project structure reorganised for clarity
+
+### Fixed
+- OAuth migration to REST API complete
+- Google/Apple Sign-In fully stable on web
+
+---
+
+## [1.6.0] - 2026-01-16
+
+### Added
+- **Anonymous Dashboard** - Returning anonymous players now see a personalized dashboard with stats
+  - Weekly score display
+  - Rank display (fetched via API)
+  - Games played count
+  - Quick access to achievements & leaderboard
+  - Change name option
+- **Score-First Achievement Submission** - `Achievements.submit_with_score()` now submits score immediately, then syncs achievements silently in background
+- **Deferred Achievement Queue** - Failed achievement syncs are re-queued automatically
+- **Session Tracking** - New per-run tracking for damage, combos, special actions
+  - `Achievements.start_new_session()` / `start_new_run()`
+  - `Achievements.on_damage_taken()` / `on_special_action()`
+  - `session_damage_taken`, `session_max_combo`, `session_special_actions` vars
+- **Batch Notifications** - `get_all_pending_notifications()` for stacked popups
+- **Submission State Tracking** - `is_submitting_score`, `is_submitting_achievements`, `is_submission_pending()`
+
+### Changed
+- MainMenu.gd upgraded to v1.5.0 with four-panel auth flow
+- Achievements.gd upgraded to v1.5.0 with score-first pattern
+- Leaderboard.gd upgraded to v1.5.0
+- Removed MobileUI, RunManager, UpgradeManager dependencies from templates
+
+### Fixed
+- Anonymous player achievements now work correctly with local caching
+- Silent login no longer triggers full login flow on anonymous dashboard
+- Duplicate SDK ready handling prevented with `_sdk_ready_handled` flag
+
+---
+
+[1.5.0] - 2026-01-14
+Added
+
+Play Sessions - Server-side time tracking for anti-cheat
+Score Validation - Backend rejects impossible scores based on play time
+start_play_session() / clear_play_session() methods
+play_session_started / play_session_error signals
+
+Changed
+
+template.html updated with play session support
+## [1.5.0] - 2026-01-14
+
+### Play Session Anti-Cheat (Time Validation)
+
+Server-side time tracking to prevent impossible scores. The backend now validates that scores are achievable based on actual play time.
+
+### Added
+
+#### CheddaBoards.gd v1.5.0
+- `start_play_session()` - Start a timed session when game begins
+- `get_play_session_token()` - Get current session token
+- `has_play_session()` - Check if session is active
+- `clear_play_session()` - Clear session after score submit
+- Signal: `play_session_started(token: String)`
+- Signal: `play_session_error(reason: String)`
+
+#### template.html v1.5.0
+- `chedda_start_play_session(gameId)` - Start session (web)
+- `chedda_get_play_session_token()` - Get token (web)
+- `chedda_clear_play_session()` - Clear session (web)
+- `chedda_submit_score_with_session(score, streak, token)` - Submit with token
+
+#### Game.gd v1.6.0
+- Play session integration example
+- Connects `play_session_started` and `play_session_error` signals
+- Starts session in `_start_game()`
+- Clears session after score submit
+
+### How It Works
+
+1. Game starts → `CheddaBoards.start_play_session()`
+2. Backend records start time, returns session token
+3. Player plays for X seconds
+4. Score submitted with session token
+5. Backend validates: `score / elapsed_time ≤ maxScorePerSecond`
+6. Invalid scores rejected with reason
+
+### Security Improvement
+
+| Threat | Before | After |
+|--------|--------|-------|
+| Memory editors | Vulnerable | Blocked |
+| Instant high scores | Vulnerable | Blocked |
+| Score injection | Vulnerable | Blocked |
+| Replay attacks | Vulnerable | Harder |
+
+### Migration from v1.4.0
+
+1. **Update CheddaBoards.gd** - Replace with v1.5.0
+2. **Update template.html** - Replace with v1.5.0 (web builds)
+3. **Update Game.gd** - Add play session calls (see example)
+
+**Minimal Game.gd changes:**
+```gdscript
+# In _ready() - connect signals
+CheddaBoards.play_session_started.connect(_on_play_session_started)
+CheddaBoards.play_session_error.connect(_on_play_session_error)
+
+# In _start_game() - start session
+if CheddaBoards.is_ready():
+    CheddaBoards.start_play_session()
+
+# Add handlers
+func _on_play_session_started(token: String):
+    print("[Game] ✓ Play session started")
+
+func _on_play_session_error(reason: String):
+    print("[Game] ⚠ Play session error: %s" % reason)
+
+# In _on_score_submitted() - clear session
+CheddaBoards.clear_play_session()
+```
+
+### Notes
+
+- Sessions expire after configured duration (default: 60 mins)
+- Games without time validation enabled still work (backward compatible)
+- Configure limits in CheddaBoards dashboard: Security tab
+
+---
+
+## [1.4.0] - 2026-01-04
+
+### Bug Fixes & Setup Wizard OAuth Support
+
+Major bug fixes for score submission, nickname updates, and player ID management. Setup Wizard now supports OAuth configuration.
+
+### Added
+
+#### Setup Wizard v2.4
+- **Google Client ID configuration**: Set directly in wizard popup
+- **Apple Service ID configuration**: Set directly in wizard popup  
+- **Apple Redirect URI configuration**: Set directly in wizard popup
+- **OAuth validation**: Checks format and required fields
+- **New check**: `_check_oauth_config()` validates OAuth settings
+- **Scrollable dialog**: Accommodates longer configuration form
+- **Status indicators**: Shows which OAuth providers are configured
+
+#### template.html v1.3.0
+- `chedda_change_nickname(newNickname)` - Direct nickname change without prompt (was missing!)
+- Improved `chedda_submit_score()` - Now submits score FIRST, then unlocks achievements
+
+### Fixed
+
+#### Score Submission & Nicknames
+- **Nickname not updating on leaderboard**: Backend now updates scoreboard entry even when score doesn't improve
+- **"No profile for this game" error**: Fixed by submitting score before unlocking achievements (creates profile first)
+- **`chedda_change_nickname is not defined` error**: Added missing function to template.html
+
+#### Player ID Management (CheddaBoards.gd)
+- **Auto-generated player ID conflict**: Removed auto-generation in `_ready()` that created duplicate IDs
+- **Wrong nickname displayed**: Fixed `get_nickname()` to prioritize manually-set nickname over auto-generated
+- **Player ID overwritten**: Lazy generation now only creates ID when actually needed and not already set
+
+#### Motoko Backend (submitScore)
+- **Nickname not syncing**: Scoreboard now updates nickname even when score/streak doesn't improve
+- Added `nicknameChanged` tracking variable
+- Stores `existingScore` and `existingStreak` to update scoreboard with current best when only nickname changes
+
+### Changed
+
+#### CheddaBoards.gd v1.4.1
+- `_ready()` no longer auto-generates player ID - waits for MainMenu to set it
+- `get_player_id()` returns existing ID if set, only generates if empty
+- `get_nickname()` priority: manual nickname → cached profile → fallback
+
+#### template.html
+- Score submission order: score first, then achievements (fixes profile creation timing)
+- Added proper nickname change function for web builds
+
+### Known Limitations
+
+- **Achievements in anonymous mode**: Still score-only for anonymous/API-key users
+  - Authenticated users (Google/Apple/Chedda ID): Full achievement support ✓
+  - Anonymous users: Scores save to leaderboard, achievements stored locally only
+
+### Technical Details
+
+**Files Updated:**
+- `addons/cheddaboards/SetupWizard.gd` → v2.4
+- `addons/cheddaboards/CheddaBoards.gd` → v1.4.1
+- `template.html` → v1.3.0
+- Motoko backend `submitScore` function
+
+**New template.html Functions:**
+```javascript
+window.chedda_change_nickname = async function(newNickname) { ... }
+```
+
+**Backend Logic Change:**
+```motoko
+// Now handles nickname-only updates
+} else if (nicknameChanged) {
+  updateScoreboardsForGame(gameId, u.identifier, u.nickname, existingScore, existingStreak, u.authType);
+  cachedLeaderboards.delete(gameId # ":score");
+  cachedLeaderboards.delete(gameId # ":streak");
+};
+```
+
+### Migration from v1.3.0
+
+1. **Update CheddaBoards.gd** - Replace with v1.4.1
+2. **Update template.html** - Replace with v1.3.0 (critical for web builds!)
+3. **Update SetupWizard.gd** - Replace with v2.4 (optional, for OAuth config)
+4. **Deploy Motoko backend** - If self-hosting, update `submitScore` function
+5. **Clear corrupted player data** (if experiencing issues):
+   - Delete `user://device_id.txt`
+   - Delete `user://player_data.save`
+
+### Upgrade Notes
+
+- **Web builds**: Must update template.html to fix nickname change and achievement unlock order
+- **Native builds**: Update CheddaBoards.gd to fix player ID conflicts
+- **Existing players**: May need to play one game to sync nickname to leaderboard
+
+---
+
+## [1.3.0] - 2025-12-30
+
+### Time-Based Scoreboards, Archives & Level System
+
+### Added
+
+#### Scoreboard Archives
+- `get_scoreboard_archives(scoreboard_id)` - List all archived periods
+- `get_last_archived_scoreboard(scoreboard_id, limit)` - Get last week/month results
+- `get_archived_scoreboard(archive_id, limit)` - Get specific archive
+- `get_archives_in_range(scoreboard_id, after, before)` - Query date range
+- Signals: `archives_list_loaded`, `archived_scoreboard_loaded`, `archive_error`
+
+#### Leaderboard UI Updates
+- All Time / Weekly toggle buttons
+- Current / Last Period archive viewing
+- Archive winner highlight (gold + 👑)
+- Date range display for archived periods
+
+#### Level System
+- 5 score-based levels (1000/2500/5000/8000 pts)
+- Time extensions: +0.15s per hit, +3s per level up, 45s cap
+- Level achievements: `level_2`, `level_3`, `level_4`, `level_5`, `level_5_fast`
+- `check_level()` function in Achievements.gd
+
+### Changed
+
+- `change_nickname()` shows JS prompt on web if no argument provided
+- Leaderboard.gd updated to v1.4.0
+- Leaderboard.tscn updated with TimeContainer and PeriodContainer
+
+---
+
+## [1.2.2] - 2025-12-27
+
+### Fixed
+
+- Default nickname now generates unique "Player_abc123" instead of generic "Player" to prevent duplicate leaderboard entries
+
+---
+
+## [1.2.1] - 2025-12-18
+
+### Native Platform Support & HTTP API
+
+**CheddaBoards now works on ALL platforms!** Windows, Mac, Linux, Mobile, and Web - same codebase, same API.
+
+### Added
+
+#### Native HTTP API Mode
+- **Full REST API support**: Native builds use HTTP API instead of JavaScript bridge
+- **Platform auto-detection**: SDK automatically uses correct mode (Web = JS bridge, Native = HTTP)
+- **API key authentication**: Secure API key for native/anonymous builds
+- **Request queuing**: Multiple requests handled gracefully, no more race conditions
+
+#### New CheddaBoards.gd Functions
+- `set_api_key(key)` - Set API key for HTTP authentication
+- `get_player_id()` - Get sanitized device/player ID
+- `set_player_id(id)` - Set custom player ID
+- `setup_anonymous_player(id, nickname)` - Configure anonymous player without signals
+- `get_player_profile(player_id)` - Fetch player profile via HTTP
+- `health_check()` - Verify API connection
+- `get_game_info()` - Get game metadata
+- `get_game_stats()` - Get game statistics
+
+#### API Endpoints Supported
+- `POST /scores` - Submit score
+- `GET /leaderboard` - Get leaderboard
+- `GET /players/{id}/profile` - Get player profile
+- `GET /players/{id}/rank` - Get player rank
+- `PUT /players/{id}/nickname` - Change nickname
+- `POST /achievements` - Unlock achievement
+- `GET /players/{id}/achievements` - Get achievements
+- `GET /health` - Health check
+
+#### New Signals
+- `request_failed(endpoint, error)` - HTTP request failure notification
+
+### Changed
+
+#### Hybrid Architecture
+- **Web exports**: Continue using JavaScript bridge for full ICP authentication
+- **Native exports**: Use HTTP API with API key authentication
+- **Anonymous play**: Works on BOTH web and native via HTTP API
+- Same GDScript code works on all platforms - SDK handles the difference
+
+#### CheddaBoards.gd Improvements
+- `is_authenticated()` - Now checks API key for native builds
+- `submit_score()` - Routes to HTTP or JS based on platform
+- `get_leaderboard()` - Works on native via HTTP API
+- `login_anonymous()` - Uses HTTP API on all platforms for consistency
+- Player ID sanitization (alphanumeric, underscore, hyphen only, max 100 chars)
+
+#### Documentation
+- README completely rewritten for multi-platform support
+- Added Native Export section
+- Added Platform Modes comparison table
+- Added API Key configuration guide
+- High-DPI display fix documented
+
+### Fixed
+
+#### High-DPI Display Support
+- Click/input offset on scaled displays (125%, 150%, etc.)
+- Add to Project Settings: Display → Window → DPI → Allow Hidpi: On
+
+#### HTTP Request Handling
+- Request queue prevents "HTTP busy" errors
+- Proper error propagation to correct signals
+- Timeout handling for failed requests
+
+#### Player ID Issues
+- OS.get_unique_id() sanitization (removes invalid characters)
+- Fallback ID generation if device ID unavailable
+- Ensures ID starts with letter (API requirement)
+
+### Technical Details
+
+**API Base URL**: `https://api.cheddaboards.com`
+**API Key Format**: `cb_yourgame_xxxxxxxxx`
+**Player ID Format**: 1-100 characters, alphanumeric + underscore + hyphen
+
+### Migration from v1.2.0
+
+1. **Update CheddaBoards.gd** - Replace with new version
+
+2. **Set API Key** (for native builds):
+   ```gdscript
+   # In CheddaBoards.gd
+   var api_key: String = "cb_your_api_key_here"
+   
+   # Or at runtime
+   CheddaBoards.set_api_key("cb_your_api_key_here")
+   ```
+
+3. **High-DPI fix** (if experiencing click offset):
+   - Project Settings → Display → Window → DPI → Allow Hidpi: On
+
+4. **No changes needed** for web-only games - fully backward compatible
+
+---
+
+## [1.2.0] - 2025-12-15
+
+### Anonymous Play & Device ID Support
+
+Play and save scores without requiring login! Perfect for casual players who want to jump straight into the game.
+
+### Added
+
+#### Anonymous Play System
+- **Device ID authentication**: Unique device identifier generated and stored in localStorage
+- **Play without login**: Users can click "PLAY NOW" and scores still save
+- **Auto-anonymous login**: MainMenu automatically creates anonymous session on direct play
+- **Local score storage**: Fallback for anonymous users if backend unavailable
+- **Seamless upgrade path**: Anonymous users can later login to sync to real account
+
+#### New CheddaBoards.gd Functions
+- `login_anonymous()` - Create anonymous session with device ID
+- `is_anonymous()` - Check if using device/anonymous authentication
+- `get_device_id()` - Get the unique device identifier
+
+#### Template Configuration
+- `CONFIG.ALLOW_ANONYMOUS_PLAY` - Enable/disable anonymous play (default: true)
+- `chedda_login_anonymous()` - JavaScript bridge for anonymous login
+- `chedda_get_device_id()` - Get device ID from JavaScript
+
+### Changed
+
+#### Authentication Flow
+- `is_authenticated()` now returns `true` for anonymous/device users
+- `chedda_is_auth()` checks both SDK auth and device ID
+- Score submission works for both authenticated and anonymous users
+- Leaderboard viewing no longer requires authentication
+
+#### MainMenu.gd
+- "PLAY NOW" button now auto-calls `login_anonymous()` before starting game
+- Anonymous users get temporary nickname like "Player_abc123"
+
+#### Game.gd
+- Simplified game over logic - always tries to submit if SDK ready
+- Handles both authenticated and anonymous score submission
+- Better logging for auth type during submission
+
+#### template.html
+- Added device ID generation using crypto API
+- Anonymous profile creation and caching
+- Score submission fallback for anonymous users
+- Achievement storage for anonymous users (local only)
+
+### Fixed
+
+- Double authentication check blocking anonymous score submission
+- Score submission failing silently when not logged in
+- Leaderboard requiring auth just to view
+
+### Technical Details
+
+**Device ID Format**: `dev_` + 32 hex characters (128-bit random)
+**Storage Key**: `cheddaboards_device_{GAME_ID}`
+**Anonymous Profile**: Stored in localStorage, persists across sessions
+
+### Important Notes
+
+- Anonymous scores are stored locally as fallback
+- To sync anonymous progress to account: login after playing
+- Device ID persists even after logout (for future anonymous play)
+- Anonymous users appear on leaderboard with auto-generated nicknames
+
+---
+
+## [1.1.0] - 2025-12-03
+
+### Setup Wizard & Asset Library Release
+
+New automated setup wizard and restructured for Godot Asset Library compatibility!
+
+### Added
+
+#### Setup Wizard (SetupWizard.gd v2.1)
+- **One-command setup**: `File > Run > addons/cheddaboards/SetupWizard.gd`
+- **Auto-fix autoloads**: Automatically adds CheddaBoards & Achievements if missing
+- **Interactive Game ID popup**: Configure your Game ID without editing files
+- **Comprehensive validation**: Checks Godot version, files, settings, export config
+- **Summary report**: Clear overview of issues, warnings, and auto-fixes applied
+- **Utility functions** for other scripts:
+  - `get_project_status()` - Get full project health check
+  - `is_ready_to_export()` - Quick export readiness check
+  - `fix_autoloads()` - Programmatically fix missing autoloads
+
+#### Asset Library Support
+- `plugin.cfg` for Godot Asset Library submission
+- Proper `addons/cheddaboards/` folder structure
+- `icon.png` (256x256) for plugin branding
+- MIT LICENSE file
+
+#### Quality of Life
+- Game ID validation (alphanumeric, hyphens, underscores only)
+- Default Game ID detection with clear warnings
+- Export preset verification
+- Project settings checks (stretch mode, main scene)
+
+### Changed
+
+#### File Structure (Asset Library Compatible)
+```
+YourGame/
+├── addons/
+│   └── cheddaboards/
+│       ├── CheddaBoards.gd      <- Core SDK
+│       ├── Achievements.gd      <- Achievement system
+│       ├── SetupWizard.gd       <- NEW! Automated setup
+│       ├── plugin.cfg           <- NEW! Asset Library metadata
+│       └── icon.png             <- NEW! Plugin icon
+├── template.html                <- Web export template (root)
+├── docs/
+│   ├── QUICKSTART.md
+│   ├── SETUP.md
+│   ├── TROUBLESHOOTING.md
+│   └── CHANGELOG.md
+├── README.md
+├── LICENSE
+├── .gitignore
+└── project.godot
+```
+
+#### Template Updates
+- Renamed to `template.html` (from `cheddaboards-template.html`)
+- Added `host: 'https://icp-api.io'` to force mainnet connection
+- Fixed localhost detection issue for local testing
+
+#### Documentation Overhaul
+- **QUICKSTART.md**: Reduced from 10 minutes to 5 minutes with wizard
+- **README.md**: Added full "Setup Wizard Reference" section
+- **SETUP.md**: Step 3 now "Run the Setup Wizard" with visual guides
+- **TROUBLESHOOTING.md**: "Run the wizard first!" as primary solution
+- All docs emphasize exporting as `index.html` (required!)
+
+### Fixed
+- SDK leaderboard parsing for single-entry edge case
+- Localhost detection now properly connects to mainnet
+- Consistent file naming across all documentation
+- Clearer error messages for common setup issues
+
+### Important Notes
+- **Export as `index.html`**: Template expects `index.js` - other names cause errors!
+- **Use web server**: `python3 -m http.server 8000` (never open file:// directly)
+
+---
+
+## [1.0.0] - 2025-11-02
+
+### Initial Release
+
+First public release of the CheddaBoards Godot 4 Template.
+
+### Added
+
+#### Core Features
+- Complete CheddaBoards SDK integration (CheddaBoards.gd autoload)
+- Achievement system with backend-first architecture (Achievements.gd autoload)
+- Authentication with Google, Apple, and Internet Identity (passwordless)
+- Global leaderboards with score/streak sorting
+- Achievement view with progress tracking
+- Animated notification popups for achievement unlocks
+- Persistent player profiles across devices
+
+#### Setup Tools
+- One-click setup wizard (CheddaBoardsSetup.gd)
+- Visual config plugin for easy Game ID configuration
+- Automatic verification of project setup
+- In-editor configuration dock
+- Testing shortcut: Press Ctrl+Shift+C to clear cached achievements for easy testing
+
+#### Scenes & UI
+- MainMenu scene with authentication
+- Game scene with test button (replace with your game)
+- GameOver panel with score submission
+- Leaderboard display with player rankings
+- AchievementsView with all achievements
+- AchievementNotification popup system
+
+#### Documentation
+- Comprehensive README with integration examples
+- QUICKSTART guide (5-minute setup)
+- Detailed SETUP guide with troubleshooting
+- Complete TROUBLESHOOTING flowchart
+
+#### Developer Experience
+- Pre-configured autoloads
+- 9 example achievements (customizable)
+- Working test button for quick verification
+- Clear code comments and structure
+- Copy-paste integration examples
+
+### Technical Details
+
+- **Godot Version**: 4.0+ compatible
+- **Export**: HTML5/Web + Native (Windows, Mac, Linux, Mobile)
+- **License**: MIT
+- **Cost**: 100% free forever
+- **Backend**: CheddaBoards (serverless, zero maintenance)
+
+### Known Limitations
+
+- Requires web server for testing web builds (no file:// protocol)
+- HTTPS required for OAuth in production
+
+---
+
+## Version History
+
+| Version | Date | Highlights |
+|---------|------|------------|
+| **v1.10.0** | 2026-03-22 | QR code login — scan to sign in instantly, no code typing required |
+| **v1.9.1** | 2025-03-04 | Setup Wizard v2.0 (API key auto-config), leaderboard cleanup, device code stress testing |
+| **v1.9.0** | 2025-02-23 | Device Code Auth (cross-platform Google/Apple), account linking on all platforms |
+| **v1.7.0** | 2025-02-05 | Modular GameWrapper, OAuth restored (web), account upgrade, clean folder structure |
+| **v1.5.0** | 2026-01-14 | Play session anti-cheat, time validation |
+| **v1.4.0** | 2026-01-04 | OAuth in wizard, nickname/score fixes, player ID fixes |
+| **v1.3.0** | 2025-12-30 | Time-based scoreboards, archives, level system |
+| **v1.2.2** | 2025-12-27 | Unique default nicknames fix |
+| **v1.2.1** | 2025-12-18 | Native platform support, HTTP REST API, API key auth |
+| **v1.2.0** | 2025-12-15 | Anonymous play with device ID, play without login |
+| **v1.1.0** | 2025-12-03 | Setup Wizard v2.1, Asset Library structure, mainnet fix |
+| **v1.0.0** | 2025-11-02 | Initial public release |
+
+---
+
+## Upgrade Guide
+
+### From v1.9.1 to v1.10.0
+
+1. **Replace `DeviceCodeLogin.gd`** with v1.1.0
+2. **Replace `DeviceCodeLogin.tscn`** with updated scene
+3. **Update `CheddaBoards.gd`** — add `qr_data_url: String` as third param to `device_code_received` signal and emit
+4. **Update any `_on_device_code_received` handlers** to accept the third argument (see Breaking Changes above)
+
+**Breaking:** `device_code_received` signal signature has changed. Update all listeners before deploying.
+
+### From v1.9.0 to v1.9.1
+
+1. **Replace `SetupWizard.gd`** with v2.0
+2. **Run the wizard**: `File → Run` (or `Ctrl+Shift+X`)
+3. **Enter your API Key** — Game ID auto-detected from key format (`cb_gamename_xxxxx`)
+4. **Restart Godot** for changes to take effect
+
+**Note**: OAuth credential fields have been removed from the wizard. Device code auth replaces the need for Google/Apple OAuth configuration in your game project.
+
+### From v1.7.0 to v1.9.0
+
+1. **Update CheddaBoards.gd** — Replace with v1.9.0 (CheddaBoardsWeb.gd and CheddaBoardsNative.gd are now merged in)
+2. **Delete** `CheddaBoardsWeb.gd` and `CheddaBoardsNative.gd` from `addons/cheddaboards/` if present
+3. **Add new files:**
+   - `scenes/DeviceCodeLogin.tscn`
+   - `scripts/DeviceCodeLogin.gd`
+4. **Optional:** Add device code login to your MainMenu for cross-platform Google/Apple sign-in
+
+**Device Code Auth is additive** — existing anonymous and web OAuth flows continue to work unchanged.
+
+### From v1.4.0 to v1.5.0
+
+1. **Update CheddaBoards.gd** - Replace with v1.5.0
+2. **Update template.html** - Replace with v1.5.0 (web builds)
+3. **Update Game.gd** - Add play session integration (4 small changes)
+4. **Backend** - If self-hosting, deploy updated main.mo with play session functions
+
+**Play session is optional but recommended** - games without it continue to work.
+
+### From v1.3.0 to v1.4.0
+
+1. **Update CheddaBoards.gd** - Replace with v1.4.1 (fixes player ID conflicts)
+2. **Update template.html** - Replace with v1.3.0 (critical for web builds!)
+3. **Update SetupWizard.gd** - Replace with v2.4 (optional, adds OAuth config)
+4. **Deploy Motoko backend** - If self-hosting, update `submitScore` function
+5. **Clear corrupted player data** (if experiencing issues):
+   - Windows: `%APPDATA%\Godot\app_userdata\YourGame\`
+   - Delete `device_id.txt` and `player_data.save`
+
+### From v1.2.2 to v1.3.0
+
+1. **Update CheddaBoards.gd** - Replace with new version (adds archive functions)
+2. **Update Leaderboard.gd** - Replace with v1.4.0 (adds time period & archive UI)
+3. **Update Leaderboard.tscn** - Replace with new version (adds button containers)
+4. **Configure scoreboard IDs** in Leaderboard.gd constants to match your backend
+
+### From v1.2.1 to v1.2.2
+
+1. **Update CheddaBoards.gd** - Replace with new version
+2. No other changes required - existing "Player" names will now show as unique IDs
+
+### From v1.2.0 to v1.2.1
+
+1. **Update CheddaBoards.gd** - Replace with new version (adds HTTP API support)
+
+2. **For Native builds, set API key**:
+   ```gdscript
+   # In CheddaBoards.gd
+   var api_key: String = "cb_your_api_key_here"
+   
+   # Or at runtime
+   CheddaBoards.set_api_key("cb_your_api_key_here")
+   ```
+
+3. **Fix high-DPI click offset** (if affected):
+   - Project Settings → Display → Window → DPI → Allow Hidpi: On
+
+4. **Web builds**: No changes required - fully backward compatible
+
+5. **Exit button for web** (optional):
+   ```gdscript
+   func _on_exit_pressed():
+       if OS.get_name() == "Web":
+           JavaScriptBridge.eval("window.location.href = 'https://yourdomain.com'")
+       else:
+           get_tree().quit()
+   ```
+
+### From v1.1.0 to v1.2.0
+
+1. **Update these files:**
+   - `addons/cheddaboards/CheddaBoards.gd` (new anonymous functions)
+   - `template.html` (device ID support)
+   - Your `MainMenu.gd` (if using direct play button)
+
+2. **Optional: Enable/disable anonymous play** in template.html:
+   ```javascript
+   CONFIG.ALLOW_ANONYMOUS_PLAY: true,  // or false to require login
+   ```
+
+3. **Update MainMenu direct play** to auto-login anonymously:
+   ```gdscript
+   func _on_direct_play_button_pressed():
+       if not CheddaBoards.is_authenticated():
+           CheddaBoards.login_anonymous()
+       get_tree().change_scene_to_file("res://scenes/game.tscn")
+   ```
+
+4. **No changes needed** to:
+   - Achievements.gd (works as-is)
+   - GameOver.gd (works as-is)
+
+### From v1.0.0 to v1.1.0
+
+1. **Restructure to addons/ folder:**
+   ```
+   mkdir -p addons/cheddaboards
+   mv CheddaBoards.gd addons/cheddaboards/
+   mv Achievements.gd addons/cheddaboards/
+   ```
+
+2. **Download new files:**
+   - `addons/cheddaboards/SetupWizard.gd` (new!)
+   - `addons/cheddaboards/plugin.cfg` (new!)
+   - `addons/cheddaboards/icon.png` (new!)
+   - Updated `template.html` (renamed, with mainnet fix)
+
+3. **Update autoload paths** in Project Settings > Autoload:
+   ```
+   CheddaBoards: res://addons/cheddaboards/CheddaBoards.gd
+   Achievements: res://addons/cheddaboards/Achievements.gd
+   ```
+
+4. **Run the wizard:**
+   ```
+   File > Run > addons/cheddaboards/SetupWizard.gd
+   ```
+
+5. **Update export settings:**
+   - Change Custom HTML Shell to `res://template.html`
+   - Always export as `index.html`
+
+### From Nothing to v1.10.0
+
+1. Download/clone from GitHub
+2. Copy `addons/cheddaboards/` folder to your project
+3. Copy `template.html` to your project root (web only)
+4. Run `File → Run` on `addons/cheddaboards/SetupWizard.gd`
+5. Enter your API Key — Game ID is auto-detected
+6. Restart Godot
+7. You're ready to go on any platform!
+
+---
+
+## Roadmap
+
+### In Progress
+- [ ] Expanded analytics dashboard
+
+### Completed
+- [x] Unity SDK
+
+---
+
+## Support
+
+- **Documentation**: See README.md
+- **GitHub**: https://github.com/cheddatech/CheddaBoards-Godot
+- **CheddaBoards**: https://cheddaboards.com
+- **Contact**: info@cheddaboards.com
+
+---
+
+## Contributing
+
+Found a bug? Have a feature request? 
+- Open an issue on GitHub
+- Submit a pull request
+- Join the community discussion
+
+---
+
+**Need help?** info@cheddaboards.com
