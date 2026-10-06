@@ -31,3 +31,4 @@
 # Exclude from ZIP downloads
 #/ export-ignore
 #/ export-ignore
+sync-sdk.sh export-ignore
