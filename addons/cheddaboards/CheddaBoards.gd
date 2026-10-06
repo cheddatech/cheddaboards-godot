@@ -17,8 +17,15 @@
 #     for the first submit, and the profile cache / pending rename / play
 #     session carried over. set_player_id() now resets all per-player state
 #     when the ID actually changes, and logout() resets the existence /
-#     pending-rename flags too. Switch = set_player_id() + login_anonymous()
-#     + get_player_profile(); logout() first is no longer required.
+#     pending-rename flags too. Switch = logout() + set_player_id() +
+#     login_anonymous() + get_player_profile().
+#     logout() is still part of the switch: set_player_id() resets
+#     per-player state but does NOT drop a signed-in session or a device
+#     code waiting for approval. If the previous person linked an account
+#     and you skip logout(), the session token stays active and the next
+#     person's profile, scores and renames go to that account whatever
+#     player ID is set. With no session it is a harmless no-op (it emits
+#     logout_success, so ignore that signal during a switch).
 #   - Fixed: a per-player response (profile, rename, rank, session, submit)
 #     still in flight when the player ID changed was applied to the NEW
 #     player. Requests now carry a player generation; responses and queued
