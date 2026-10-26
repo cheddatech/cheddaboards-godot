@@ -5,6 +5,15 @@ All notable changes to CheddaBoards Godot 4 SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Template — 2026-10-26
+
+- SDK updated to 2.3.2. The Setup Wizard no longer loses your credentials
+  when MainMenu.gd is open in the editor, and stops flagging uid:// autoloads
+  as wrong. Full notes in the [SDK changelog](https://github.com/cheddatech/cheddaboards-godot-addon/blob/main/CHANGELOG.md).
+- Fixed the boot splash and project icon, which pointed at the addon's
+  icon.png after 2.3.1 removed it. The icon now lives at res://icon.png.
+- Tested on Godot 4.3+.
+
 ## Template — 2026-10-06
 
 - SDK updated to 2.3.1. Switching player with `set_player_id()` (shared

@@ -1,7 +1,7 @@
 @tool
 extends EditorScript
 
-# CheddaBoards Setup Wizard v2.2
+# CheddaBoards Setup Wizard v2.3
 # Run via: File → Run (or Ctrl+Shift+X)
 #
 # What it does:
@@ -34,7 +34,7 @@ func _run():
 
 	print("")
 	print("╔════════════════════════════════════════════════╗")
-	print("║       🧀 CheddaBoards Setup Wizard v2.2       ║")
+	print("║       🧀 CheddaBoards Setup Wizard v2.3       ║")
 	print("╚════════════════════════════════════════════════╝")
 	print("")
 
@@ -66,9 +66,7 @@ func _check_autoload(autoload_name: String, expected_path: String, required: boo
 	var setting := "autoload/" + autoload_name
 
 	if ProjectSettings.has_setting(setting):
-		var current_path: String = ProjectSettings.get_setting(setting)
-		if current_path.begins_with("*"):
-			current_path = current_path.substr(1)
+		var current_path := _resolve_path(str(ProjectSettings.get_setting(setting)))
 
 		if current_path == expected_path:
 			print("   ✅ %s" % autoload_name)
@@ -98,6 +96,17 @@ func _check_autoload(autoload_name: String, expected_path: String, required: boo
 			print("      Is the addon installed at %s ?" % ADDON_PATH)
 		else:
 			print("   ⏭️  %s → not installed (full template only) — skipping" % autoload_name)
+
+
+## Autoload settings can be "*res://..." or, in newer Godot (4.4+), "*uid://...".
+## Turn either into a plain res:// path so we compare like with like.
+func _resolve_path(raw: String) -> String:
+	var p := raw.substr(1) if raw.begins_with("*") else raw
+	if p.begins_with("uid://"):
+		var id := ResourceUID.text_to_id(p)
+		if id != ResourceUID.INVALID_ID and ResourceUID.has_id(id):
+			return ResourceUID.get_id_path(id)
+	return p
 
 
 # ============================================================
@@ -165,8 +174,7 @@ func _print_status():
 # ============================================================
 
 func _show_api_key_dialog():
-	var editor = get_editor_interface()
-	var base_control = editor.get_base_control()
+	var base_control = EditorInterface.get_base_control()
 
 	var target := _resolve_credentials_target()
 
@@ -291,7 +299,7 @@ func _show_api_key_dialog():
 			return
 
 		# Primary: write the runtime calls into the startup script's _ready()
-		var written = _set_script_credentials(target, api_key, game_id)
+		var result := _set_script_credentials(target, api_key, game_id)
 
 		# Secondary (legacy web): keep template.html in sync — non-fatal
 		var template_synced_key = _set_template_value("API_KEY", api_key)
@@ -304,9 +312,16 @@ func _show_api_key_dialog():
 		print("│")
 		print("   ✅ API Key:  %s" % _mask(api_key))
 		print("   ✅ Game ID:  %s" % game_id)
-		if written:
+		if result == WriteResult.WRITTEN:
 			print("   ✅ Written to %s → set_api_key() / set_game_id()" % target)
-			print("      (open the file to review — the block is marked with comments)")
+			print("      (the block is marked with comments at the top of _ready())")
+		elif result == WriteResult.UNCHANGED:
+			print("   ✅ %s already has these credentials — nothing to change" % target)
+		elif not target.is_empty():
+			print("   ⚠️  Couldn't write to %s — add these manually" % target)
+			print("      at the top of _ready(), before any other CheddaBoards call:")
+			print("          CheddaBoards.set_api_key(\"%s\")" % api_key)
+			print("          CheddaBoards.set_game_id(\"%s\")" % game_id)
 		else:
 			print("   ⚠️  No startup script found — add these manually")
 			print("      in your main scene's _ready(), before any other CheddaBoards call:")
@@ -380,16 +395,25 @@ func _get_script_value(script_path: String, which: String) -> String:
 	return result.get_string(1) if result else ""
 
 
-func _set_script_credentials(script_path: String, api_key: String, game_id: String) -> bool:
+enum WriteResult { FAILED, WRITTEN, UNCHANGED }
+
+func _set_script_credentials(script_path: String, api_key: String, game_id: String) -> WriteResult:
 	if script_path.is_empty() or not FileAccess.file_exists(script_path):
-		return false
+		return WriteResult.FAILED
 
-	var file = FileAccess.open(script_path, FileAccess.READ)
-	if not file:
-		return false
-
-	var content = file.get_as_text()
-	file.close()
+	# If the script is open in the editor, its tab is the real source of truth:
+	# it may hold unsaved edits, and pressing Play saves every open tab over the
+	# file on disk. So start from the tab's text, not the file's.
+	var code_edit := _find_open_code_edit(script_path)
+	var content := ""
+	if code_edit:
+		content = code_edit.text
+	else:
+		var file = FileAccess.open(script_path, FileAccess.READ)
+		if not file:
+			return WriteResult.FAILED
+		content = file.get_as_text()
+		file.close()
 
 	var block = "%s\n\tCheddaBoards.set_api_key(\"%s\")\n\tCheddaBoards.set_game_id(\"%s\")\n%s" % [CRED_BEGIN, api_key, game_id, CRED_END]
 
@@ -420,15 +444,45 @@ func _set_script_credentials(script_path: String, api_key: String, game_id: Stri
 			new_content = stripped + "\n\nfunc _ready():\n" + block + "\n"
 
 	if new_content == content:
-		return false
+		return WriteResult.UNCHANGED
 
-	file = FileAccess.open(script_path, FileAccess.WRITE)
-	if not file:
-		return false
+	var out = FileAccess.open(script_path, FileAccess.WRITE)
+	if not out:
+		return WriteResult.FAILED
+	out.store_string(new_content)
+	out.close()
 
-	file.store_string(new_content)
-	file.close()
-	return true
+	_sync_editor(script_path, new_content, code_edit)
+	return WriteResult.WRITTEN
+
+
+## The CodeEdit of an open script tab for this path, or null if it isn't open.
+## Switches the script editor to that tab (handy: you see the change land).
+func _find_open_code_edit(script_path: String) -> CodeEdit:
+	var script_editor := EditorInterface.get_script_editor()
+	for s in script_editor.get_open_scripts():
+		if s.resource_path == script_path:
+			EditorInterface.edit_script(s)
+			var ed := script_editor.get_current_editor()
+			if ed:
+				return ed.get_base_editor() as CodeEdit
+	return null
+
+
+## Bring the editor up to date with the file we just wrote, without reloading
+## the script (a reload can reset exported values on open scenes).
+func _sync_editor(script_path: String, new_content: String, code_edit: CodeEdit) -> void:
+	if code_edit:
+		code_edit.text = new_content
+		code_edit.tag_saved_version()  # matches disk, so no unsaved marker
+	# Update the copy Godot already has loaded, if any. load() on a cached
+	# path returns that same object (get_cached_ref() would be neater but
+	# needs Godot 4.4, and we support 4.3).
+	if ResourceLoader.has_cached(script_path):
+		var script := load(script_path) as Script
+		if script:
+			script.source_code = new_content
+	EditorInterface.get_resource_filesystem().update_file(script_path)
 
 
 # ============================================================

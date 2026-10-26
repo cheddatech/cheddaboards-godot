@@ -1,7 +1,7 @@
 [gd_scene load_steps=4 format=3 uid="uid://cuvkn80vfc7mq"]
 
 [ext_resource type="Script" uid="uid://10piffesa0q5" path="res://scripts/Leaderboard.gd" id="1_script"]
-[ext_resource type="Texture2D" uid="uid://cighw5yua3ygf" path="res://addons/cheddaboards/icon.png" id="2_icon"]
+[ext_resource type="Texture2D" uid="uid://cighw5yua3ygf" path="res://icon.png" id="2_icon"]
 [ext_resource type="FontFile" uid="uid://b5c8vdfry2s83" path="res://assets/fonts/ZeroCool.ttf" id="3_font"]
 
 [node name="Leaderboard" type="Control"]

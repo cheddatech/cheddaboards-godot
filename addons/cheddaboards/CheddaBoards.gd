@@ -1,4 +1,4 @@
-# CheddaBoards.gd v2.3.1
+# CheddaBoards.gd v2.3.2
 # CheddaBoards integration for Godot 4.x
 # https://github.com/cheddatech/CheddaBoards-Godot
 # https://cheddaboards.com
@@ -8,7 +8,8 @@
 # - Social login (Google, Apple, II): Device Code Auth flow
 #   Player authenticates on their phone at cheddaboards.com/link
 # - Score submissions, play sessions, achievements: all via HTTP API
-#
+# v2.3.2:
+#  - Only touches the wizard and the SDK code is unchanged.
 # v2.3.1:
 #   - Fixed: switching player with set_player_id() (shared devices, local
 #     rosters) kept the previous player's state. _player_exists_on_backend
@@ -306,7 +307,7 @@ var debug_logging: bool = false
 
 ## HTTP API Configuration
 ## SDK version. Keep in sync with the header changelog.
-const VERSION = "2.3.0"
+const VERSION = "2.3.2"
 const API_BASE_URL = "https://api.cheddaboards.com"
 ## Direct canister reads (public board GETs served by the canister itself
 ## over the IC HTTP gateway). Same response shape as the proxy; used for

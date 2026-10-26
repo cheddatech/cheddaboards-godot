@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="CheddaBoards" width="160"/>
+  <img src="screenshots/banner.webp" alt="CheddaBoards Game Template"/>
 </p>
 
 # CheddaBoards — Godot 4 Template
@@ -7,7 +7,7 @@
 **A complete game template with leaderboards, achievements, and cross-platform auth built in.**
 **Download → Add your game → Export. That's it.**
 
-> **SDK 2.3.0** · Godot 4.6+ · Windows / Mac / Linux / Mobile / Web · MIT · Free tier · [Changelog](docs/CHANGELOG.md)
+> **SDK 2.3.2** · Godot 4.3+ · Windows / Mac / Linux / Mobile / Web · MIT · Free tier · [Changelog](docs/CHANGELOG.md)
 
 <p align="center">
   <a href="https://status.cheddatech.com"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcheddatech%2Fstatus%2FHEAD%2Fapi%2Fapi%2Fuptime.json&label=API%20uptime" alt="API uptime"/></a>
@@ -90,7 +90,7 @@ Point the wrapper at your scene and that's the whole game-side integration — t
 
 ### 1. Setup
 
-Download from the [Godot Asset Store](https://store.godotengine.org/asset/cheddatech/cheddaboards) (or the [legacy Asset Library](https://godotengine.org/asset-library/asset/4574) / GitHub), open in **Godot 4.6+**, then run the Setup Wizard:
+Download from the [Godot Asset Store](https://store.godotengine.org/asset/cheddatech/cheddaboards) (or the [legacy Asset Library](https://godotengine.org/asset-library/asset/4574) / GitHub), open in **Godot 4.3+**, then run the Setup Wizard:
 
 ```
 File → Run → addons/cheddaboards/SetupWizard.gd
@@ -218,7 +218,7 @@ CheddaBoards-Godot/
 
 ## Prerequisites
 
-- **Godot 4.6+** for the template (the SDK on its own runs on 4.3+)
+- **Godot 4.3+** for both the template and the SDK
 - A free **CheddaBoards account** — [cheddaboards.com](https://cheddaboards.com) — for your Game ID & API key
 
 > **Upgrading from v2.1 or earlier?** `profile_loaded` emits `play_count` as a 5th argument since v2.2.0 — a breaking change for 4-arg handlers. Full migration notes in the [Changelog](docs/CHANGELOG.md).
