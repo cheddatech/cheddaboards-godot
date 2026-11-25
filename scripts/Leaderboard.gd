@@ -1,4 +1,9 @@
-# Leaderboard.gd v2.1.1
+# Leaderboard.gd v2.2.0
+# v2.2.0: International display names (needs SDK >= 2.5.0). A row whose
+#         entry carries a displayName shows it, with the player's nickname
+#         in small dim text beside it, so two players with the same
+#         display name can still be told apart. "You" highlighting still
+#         matches on the nickname. Rows without one are unchanged.
 # v2.1.1: debug output gated behind CheddaBoards.debug_logging master switch
 # Redesigned leaderboard showcasing CheddaBoards features
 # Tabs: All Time | Weekly | Daily with archive dropdown for timed scoreboards
@@ -768,6 +773,7 @@ func _get_sort_value(entry) -> int:
 func _add_leaderboard_entry(rank: int, entry) -> void:
 	# Parse entry data
 	var nickname: String
+	var display_name: String = ""
 	var score: int
 	var streak: int
 	
@@ -777,6 +783,9 @@ func _add_leaderboard_entry(rank: int, entry) -> void:
 		streak = entry[2] if entry.size() > 2 else 0
 	elif typeof(entry) == TYPE_DICTIONARY:
 		nickname = str(entry.get("nickname", entry.get("username", "Unknown")))
+		var dn = entry.get("displayName", null)
+		if dn != null and str(dn) != "":
+			display_name = str(dn)
 		score = entry.get("score", entry.get("highScore", 0))
 		streak = entry.get("streak", entry.get("bestStreak", 0))
 	else:
@@ -848,14 +857,25 @@ func _add_leaderboard_entry(rank: int, entry) -> void:
 	
 	hbox.add_child(rank_label)
 	
-	# Nickname
+	# Name: the display name when the entry has one, nickname otherwise
 	var name_label = Label.new()
-	name_label.text = nickname
+	name_label.text = display_name if display_name != "" else nickname
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_label.add_theme_font_size_override("font_size", row_font)
 	name_label.add_theme_color_override("font_color", Color.WHITE if is_current_player else COLOR_TEXT)
 	name_label.clip_text = true
+	name_label.tooltip_text = nickname
 	hbox.add_child(name_label)
+	if display_name != "":
+		# Nickname alongside, small and dim: display names aren't unique
+		var nick_label = Label.new()
+		nick_label.text = nickname
+		nick_label.add_theme_font_size_override("font_size", int(row_font * 0.7))
+		nick_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+		nick_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		nick_label.clip_text = true
+		nick_label.custom_minimum_size = Vector2(MobileUI.get_size(48 if MobileUI.is_mobile else 90), 0)
+		hbox.add_child(nick_label)
 	
 	# Value
 	var value_label = Label.new()

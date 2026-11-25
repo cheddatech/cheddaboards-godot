@@ -5,6 +5,25 @@ All notable changes to CheddaBoards Godot 4 SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Template — 2026-11-25
+
+- SDK updated to 2.5.0 (via 2.4.0). Full notes in the [SDK changelog](https://github.com/cheddatech/cheddaboards-godot-addon/blob/main/CHANGELOG.md).
+  - 2.4.0: the game ID is read from the API key, `logout(true)` starts a
+    brand-new guest, and `login_anonymous()` no longer turns a restored
+    linked player into a guest.
+  - 2.5.0: international display names.
+- **International display names.** Turn on **International names** for your
+  game in the dashboard and the name panel (MainMenu v2.1.11) gets a second,
+  optional field for a display name in any language (日本語, 한국어,
+  Кириллица...). Welcome lines show it, and leaderboard rows (Leaderboard
+  v2.2.0) show it with the player's nickname in small text beside it. With
+  the setting off nothing changes.
+  - Your theme needs a font with those characters: Godot's default font
+    has no Japanese, Chinese or Korean glyphs. Add a fallback such as Noto
+    Sans CJK to the project's default theme font before turning it on.
+  - Web builds: the browser name prompt only collects the nickname, so the
+    display-name field isn't shown there.
+
 ## Template — 2026-10-26
 
 - SDK updated to 2.3.2. The Setup Wizard no longer loses your credentials

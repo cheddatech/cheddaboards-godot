@@ -1,4 +1,11 @@
-# MainMenu.gd v2.1.10
+# MainMenu.gd v2.1.11
+# v2.1.11: International display names (needs SDK >= 2.5.0). When the game
+#          has "International names" turned on in the dashboard, the name
+#          panel gets a second, optional field for a display name in any
+#          language, and the welcome lines show it. The nickname field and
+#          its rules are unchanged. Not shown on web builds: the browser
+#          name prompt only collects the nickname. Your theme needs a font
+#          with the characters players type (see docs: display names).
 # v2.1.10: device-code sign-in completes even if the popup was closed
 #          first. DeviceCodeLogin v1.4.0 treats Close as a soft dismiss
 #          (SDK keeps polling), so approval can arrive with the popup
@@ -278,6 +285,12 @@ var _name_entry_mode: String = "first_play"
 # Web name modal: true while waiting for the browser HTML input to return a name
 var _awaiting_web_name: bool = false
 
+# v2.1.11: optional display-name field, built at runtime under the nickname
+# field so the scene file is unchanged. Only shown when the game has
+# International names on (CheddaBoards.international_names).
+var _display_name_edit: LineEdit = null
+var _display_name_hint: Label = null
+
 # ============================================================
 # TIMERS
 # ============================================================
@@ -325,6 +338,8 @@ func _ready():
 	CheddaBoards.logout_success.connect(_on_logout_success)
 	CheddaBoards.nickname_changed.connect(_on_nickname_changed)
 	CheddaBoards.nickname_error.connect(_on_nickname_error)
+	CheddaBoards.display_name_changed.connect(_on_display_name_changed)
+	CheddaBoards.display_name_error.connect(_on_display_name_error)
 	
 	# Connect upgrade signals
 	CheddaBoards.account_upgraded.connect(_on_upgrade_success)
@@ -400,6 +415,9 @@ func _ready():
 	# quit() just freezes the canvas in a browser
 	_apply_web_exit_visibility()
 	
+	# Optional display-name field (hidden until International names is on)
+	_build_display_name_field()
+	
 	# Phones: wrap each panel's content in a ScrollContainer
 	_make_panels_scrollable()
 	
@@ -415,7 +433,7 @@ func _ready():
 	status_label.text = "Connecting..."
 	_enable_login_buttons(false)
 	
-	_log("[MainMenu] v2.1.10 initialized | Mobile: %s | UI Scale: %.2f" % [MobileUI.is_mobile, MobileUI.ui_scale])
+	_log("[MainMenu] v2.1.11 initialized | Mobile: %s | UI Scale: %.2f" % [MobileUI.is_mobile, MobileUI.ui_scale])
 	
 	# Check if SDK already ready
 	if CheddaBoards.is_ready():
@@ -467,6 +485,11 @@ func _scale_name_entry_panel():
 	if name_line_edit:
 		name_line_edit.add_theme_font_size_override("font_size", MobileUI.get_font_size(18))
 		name_line_edit.custom_minimum_size.y = MobileUI.get_touch_size(44)
+	if _display_name_edit:
+		_display_name_edit.add_theme_font_size_override("font_size", MobileUI.get_font_size(18))
+		_display_name_edit.custom_minimum_size.y = MobileUI.get_touch_size(44)
+	if _display_name_hint:
+		MobileUI.scale_label(_display_name_hint, 12)
 	
 	var margin = name_entry_panel.get_node_or_null("MarginContainer")
 	if margin is MarginContainer:
@@ -538,6 +561,10 @@ func _on_sdk_ready():
 	_log("SDK ready")
 	status_label.text = ""
 	_enable_login_buttons(true)
+	
+	# Learn whether International names is on (sets
+	# CheddaBoards.international_names, read when the name panel opens)
+	CheddaBoards.get_game_info()
 	
 	_check_existing_auth()
 
@@ -925,6 +952,13 @@ func _show_name_entry_panel(mode: String = "first_play"):
 	name_line_edit.placeholder_text = "Enter your name..."
 	name_status_label.text = ""
 	
+	var show_dn := CheddaBoards.international_names and _display_name_edit != null
+	if _display_name_edit:
+		_display_name_edit.visible = show_dn
+		_display_name_edit.text = CheddaBoards.get_display_name() if show_dn else ""
+	if _display_name_hint:
+		_display_name_hint.visible = show_dn
+	
 	name_line_edit.grab_focus()
 	# Pre-select the prefilled name: typing replaces it immediately,
 	# but it's still accepted as-is with one press of the confirm button
@@ -973,7 +1007,7 @@ func _show_anonymous_panel():
 	# on login_success with delta tracking, the reliable identity moment)
 	
 	if anon_welcome_label:
-		anon_welcome_label.text = "Welcome back, %s!" % anonymous_nickname
+		anon_welcome_label.text = "Welcome back, %s!" % _shown_name(anonymous_nickname)
 	
 	# Loading state while we fetch stats
 	if anon_weekly_score_label:
@@ -1104,7 +1138,7 @@ func _update_anonymous_panel_stats(profile: Dictionary):
 		anonymous_nickname = profile_nickname
 		_save_player_data()
 		if anon_welcome_label:
-			anon_welcome_label.text = "Welcome back, %s!" % profile_nickname
+			anon_welcome_label.text = "Welcome back, %s!" % _shown_name(profile_nickname)
 	
 	var all_time_score = int(profile.get("score", 0))
 	var play_count = int(profile.get("playCount", profile.get("plays", 0)))
@@ -1212,7 +1246,7 @@ func _show_main_panel(profile: Dictionary):
 	var play_count = int(profile.get("playCount", profile.get("plays", 0)))
 	var rank = int(profile.get("rank", 0))
 	
-	welcome_label.text = "Welcome, %s!" % nickname
+	welcome_label.text = "Welcome, %s!" % _shown_name(nickname)
 	if weekly_score_label:
 		weekly_score_label.text = "All-Time: %d" % all_time_score
 	_set_rank_label(rank_label, rank)
@@ -1234,7 +1268,7 @@ func _update_main_panel_stats(profile: Dictionary):
 	var play_count = int(profile.get("playCount", profile.get("plays", 0)))
 	var rank = int(profile.get("rank", 0))
 	
-	welcome_label.text = "Welcome, %s!" % nickname
+	welcome_label.text = "Welcome, %s!" % _shown_name(nickname)
 	if weekly_score_label:
 		weekly_score_label.text = "All-Time: %d" % all_time_score
 	_set_rank_label(rank_label, rank)
@@ -1556,6 +1590,7 @@ func _on_confirm_name_pressed():
 		anonymous_nickname = name_text
 		_rename_pending = true
 		CheddaBoards.change_nickname(name_text)
+		_send_display_name_if_changed()
 		
 		name_status_label.text = "Saving..."
 		name_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
@@ -1566,7 +1601,7 @@ func _on_confirm_name_pressed():
 		else:
 			name_entry_panel.visible = false
 			main_panel.visible = true
-			welcome_label.text = "Welcome, %s!" % name_text
+			welcome_label.text = "Welcome, %s!" % _shown_name(name_text)
 	else:
 		# First play: set up anonymous identity and start the game.
 		# Save the nickname/ID but NOT has_played - the Game wrapper marks
@@ -1578,6 +1613,9 @@ func _on_confirm_name_pressed():
 		CheddaBoards.set_player_id(anonymous_player_id)
 		CheddaBoards.change_nickname(name_text)
 		CheddaBoards.login_anonymous(name_text)
+		# Player doesn't exist yet: the API holds the display name and
+		# applies it with the first score.
+		_send_display_name_if_changed()
 		
 		_log("Starting game as: %s (ID: %s)" % [anonymous_nickname, anonymous_player_id])
 		get_tree().change_scene_to_file(SCENE_GAME)
@@ -1647,7 +1685,7 @@ func _on_profile_loaded(nickname: String, score: int, _streak: int, achievements
 			anonymous_nickname = nickname
 			_save_player_data()
 			if anonymous_panel and anonymous_panel.visible and anon_welcome_label:
-				anon_welcome_label.text = "Welcome back, %s!" % nickname
+				anon_welcome_label.text = "Welcome back, %s!" % _shown_name(nickname)
 	
 	var profile = {
 		"nickname": nickname,
@@ -1718,9 +1756,9 @@ func _on_nickname_changed(new_nickname: String):
 	_save_player_data()  # persist the CONFIRMED name (the old code never
 	# saved here, so a quit right after renaming rebooted with the old name)
 	if main_panel.visible:
-		welcome_label.text = "Welcome, %s!" % new_nickname
+		welcome_label.text = "Welcome, %s!" % _shown_name(new_nickname)
 	elif anonymous_panel and anonymous_panel.visible:
-		anon_welcome_label.text = "Welcome back, %s!" % new_nickname
+		anon_welcome_label.text = "Welcome back, %s!" % _shown_name(new_nickname)
 
 func _on_nickname_error(reason: String):
 	"""Rename rejected (taken, invalid, etc). Unblock the profile sync so
@@ -1734,6 +1772,65 @@ func _on_nickname_error(reason: String):
 		name_status_label.add_theme_color_override("font_color", Color.RED)
 	# Pull the server's actual nickname back (sync is unblocked now)
 	CheddaBoards.refresh_profile()
+
+# ============================================================
+# DISPLAY NAMES (v2.1.11, SDK >= 2.5.0)
+# ============================================================
+
+func _build_display_name_field() -> void:
+	if not name_line_edit or not name_line_edit.get_parent():
+		return
+	var box := name_line_edit.get_parent()
+	_display_name_edit = LineEdit.new()
+	_display_name_edit.name = "DisplayNameLineEdit"
+	_display_name_edit.placeholder_text = "Display name, any language (optional)"
+	_display_name_edit.max_length = 32
+	_display_name_edit.visible = false
+	box.add_child(_display_name_edit)
+	box.move_child(_display_name_edit, name_line_edit.get_index() + 1)
+	_display_name_edit.text_submitted.connect(func(_t): _on_confirm_name_pressed())
+	_display_name_hint = Label.new()
+	_display_name_hint.name = "DisplayNameHint"
+	_display_name_hint.text = "Shown on the leaderboard instead of your name. Leave empty to use your name."
+	_display_name_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_display_name_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_display_name_hint.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	_display_name_hint.visible = false
+	box.add_child(_display_name_hint)
+	box.move_child(_display_name_hint, _display_name_edit.get_index() + 1)
+
+## Sends the display-name field if it's showing and differs from the
+## current name. Empty clears it.
+func _send_display_name_if_changed() -> void:
+	if not _display_name_edit or not _display_name_edit.visible:
+		return
+	var dn := _display_name_edit.text.strip_edges()
+	if dn == CheddaBoards.get_display_name():
+		return
+	CheddaBoards.set_display_name(dn)
+
+## Name for welcome lines: the display name when the player has one.
+func _shown_name(nickname: String) -> String:
+	var dn := CheddaBoards.get_display_name()
+	return dn if dn != "" else nickname
+
+func _on_display_name_changed(display_name: String) -> void:
+	_log("Display name changed: %s" % display_name)
+	var nick := CheddaBoards.get_nickname()
+	if nick == "":
+		nick = anonymous_nickname
+	if main_panel.visible:
+		welcome_label.text = "Welcome, %s!" % _shown_name(nick)
+	elif anonymous_panel and anonymous_panel.visible:
+		anon_welcome_label.text = "Welcome back, %s!" % _shown_name(nick)
+
+func _on_display_name_error(reason: String) -> void:
+	_log("Display name error: %s" % reason)
+	if name_status_label and name_entry_panel and name_entry_panel.visible:
+		name_status_label.text = "Display name not saved: %s" % reason
+		name_status_label.add_theme_color_override("font_color", Color.RED)
+	elif anonymous_panel and anonymous_panel.visible and upgrade_status_label:
+		upgrade_status_label.text = "Display name not saved: %s" % reason
 
 # ============================================================
 # MAIN PANEL BUTTON HANDLERS
