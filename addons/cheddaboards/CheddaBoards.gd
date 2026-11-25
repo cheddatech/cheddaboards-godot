@@ -1,4 +1,4 @@
-# CheddaBoards.gd v2.3.2
+# CheddaBoards.gd v2.5.0
 # CheddaBoards integration for Godot 4.x
 # https://github.com/cheddatech/CheddaBoards-Godot
 # https://cheddaboards.com
@@ -8,6 +8,41 @@
 # - Social login (Google, Apple, II): Device Code Auth flow
 #   Player authenticates on their phone at cheddaboards.com/link
 # - Score submissions, play sessions, achievements: all via HTTP API
+# v2.5.0 (minor bump: adds public API, no behaviour changes):
+#   - International display names. A player can have a display name in any
+#     language (日本語, 한국어, Кириллица, accented Latin...) alongside their
+#     nickname. The nickname is unchanged: unique, ASCII, 3-16, and the name
+#     every game can render. The display name is optional, one per account,
+#     doesn't have to be unique, and only works in games where the developer
+#     turned on "International names" in the dashboard (your game needs a
+#     font with those characters: Godot's default font has no CJK glyphs).
+#   - New set_display_name(name) / clear_display_name(), with
+#     display_name_changed(display_name) and display_name_error(reason).
+#     A name set before the player's first score is held by the API and
+#     applied with that first score. The server validates and normalises
+#     the name (2-16 characters, one alphabet, no emoji); always show the
+#     name from display_name_changed, not the one you sent.
+#   - get_display_name() returns the player's own display name ("" if none).
+#   - Board entries carry an optional "displayName" key. New helper
+#     get_entry_name(entry) returns the display name when there is one and
+#     the nickname otherwise, so leaderboard rows can use it directly.
+#   - get_game_info() now emits game_info_loaded(info) and sets
+#     international_names, so a game can show its name box only when on.
+# v2.4.0 (minor bump: adds public API and changes one behaviour, see below):
+#   - logout(fresh_device_id): pass true to also throw away the saved device
+#     ID, so the next login_anonymous() is a brand-new guest (shared devices,
+#     testing link/merge). Default false, so plain logout() is unchanged.
+#   - New reset_device_id(): deletes the saved device ID, resets per-player
+#     state and generates a new ID.
+#   - The game ID is now read from the API key (cb_<game-id>_...), so
+#     set_api_key() alone is enough. set_game_id() is optional and still
+#     wins if you call it; a mismatch with the key is logged.
+#   - Behaviour change: login_anonymous() while a linked session is active
+#     is now ignored (logged, and login_success fires with the linked
+#     nickname). Before, it flipped the SDK to "guest" (has_account() false)
+#     while every request still carried the account's session, so games
+#     calling it at startup showed a restored linked player as a guest. To
+#     really switch to a guest, call logout() first.
 # v2.3.2:
 #  - Only touches the wizard and the SDK code is unchanged.
 # v2.3.1:
@@ -201,7 +236,7 @@ extends Node
 # ============================================================
 # 1. Add this script to Project Settings > Autoload as "CheddaBoards"
 # 2. Set your API key: CheddaBoards.set_api_key("cb_xxx")
-# 3. Set your game ID: CheddaBoards.set_game_id("your-game")
+#    (the game ID is read from the key; set_game_id("your-game") is optional)
 #
 # Anonymous login:
 #    func _ready():
@@ -251,6 +286,10 @@ signal profile_loaded(nickname: String, score: int, streak: int, achievements: A
 signal no_profile()
 signal nickname_changed(new_nickname: String)
 signal nickname_error(reason: String)
+## v2.5.0: the player's display name was set or cleared. Empty = cleared.
+## Show this value, not the one you sent: the server normalises it.
+signal display_name_changed(display_name: String)
+signal display_name_error(reason: String)
 
 # --- Scores & Leaderboards (Legacy) ---
 signal score_submitted(score: int, streak: int)
@@ -278,6 +317,8 @@ signal achievements_loaded(achievements: Array)
 
 # --- HTTP API ---
 signal request_failed(endpoint: String, error: String)
+## v2.5.0: GET /game answered (also sets international_names).
+signal game_info_loaded(info: Dictionary)
 
 # --- Play Sessions (Time Validation) ---
 signal play_session_started(token: String)
@@ -307,7 +348,7 @@ var debug_logging: bool = false
 
 ## HTTP API Configuration
 ## SDK version. Keep in sync with the header changelog.
-const VERSION = "2.3.2"
+const VERSION = "2.5.0"
 const API_BASE_URL = "https://api.cheddaboards.com"
 ## Direct canister reads (public board GETs served by the canister itself
 ## over the IC HTTP gateway). Same response shape as the proxy; used for
@@ -330,12 +371,15 @@ const DEDUPE_READ_TYPES = [
 ## Your API key from the CheddaBoards developer dashboard (cheddaboards.com).
 ## Set at runtime via set_api_key():
 ##     CheddaBoards.set_api_key("cb_your-game_xxxxxxxxxx")
-var api_key: String = ""
-## Your game ID from the developer dashboard.
-## Set at runtime via set_game_id():
-##     CheddaBoards.set_game_id("your-game")
+var api_key: String = "": set = set_api_key
+## Your game ID. Read from the API key automatically; only call
+## set_game_id() if you need to override it.
 var game_id: String = ""
+var _game_id_from_key: bool = false   ## game_id came from the key, not set_game_id()
 var _player_id: String = ""
+## v2.5.0: true when this game has "International names" turned on in the
+## dashboard. Filled by get_game_info(); false until then.
+var international_names: bool = false
 var _session_token: String = ""  ## For OAuth session-based auth
 var _play_session_token: String = ""  ## For time validation
 
@@ -348,6 +392,8 @@ var _auth_type: String = ""
 var _cached_profile: Dictionary = {}
 var _nickname_just_changed: bool = false
 var _nickname: String = ""
+var _display_name: String = ""            ## v2.5.0, from the profile / last set
+var _requested_display_name: String = ""  ## sent in the last display name PUT
 
 # Rename correctness state (v2.2.8, ported from the Unity SDK fix):
 # _player_exists_on_backend - true once ANY server op confirms the player
@@ -370,7 +416,7 @@ var _player_exists_on_backend: bool = false
 var _player_gen: int = 0
 const PER_PLAYER_TYPES := ["player_profile", "change_nickname", "change_nickname_anonymous",
 	"player_rank", "scoreboard_rank", "start_play_session", "end_play_session",
-	"submit_score", "submit_score_to_board", "unlock_achievement"]
+	"submit_score", "submit_score_to_board", "unlock_achievement", "change_display_name"]
 var _pending_server_nickname: String = ""
 var _pending_rename_attempts: int = 0
 var _requested_nickname: String = ""
@@ -458,6 +504,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_setup_http_client()
 	_log("Initializing CheddaBoards v%s (HTTP API Mode)..." % VERSION)
+	_adopt_game_id_from_key()   # covers an api_key written straight into this file
 	_load_saved_session()
 	# Resume an interrupted device code link (page reload mid-link). Runs
 	# synchronously so a login screen that calls login_with_device_code()
@@ -718,6 +765,18 @@ func _emit_http_success(data) -> void:
 				_log("Anonymous nickname changed to: %s" % new_nick)
 			get_player_profile()
 		
+		"change_display_name":
+			# null in the response means cleared. Pending (player has no score
+			# yet) still echoes the normalised name, so treat it as set.
+			var dn_raw = data.get("displayName", null) if typeof(data) == TYPE_DICTIONARY else null
+			var dn: String = "" if dn_raw == null else str(dn_raw)
+			_requested_display_name = ""
+			_display_name = dn
+			if not _cached_profile.is_empty():
+				_cached_profile["displayName"] = dn
+			_log("Display name %s%s" % ["cleared" if dn == "" else "set to: " + dn, " (pending first score)" if data.get("pending", false) else ""])
+			display_name_changed.emit(dn)
+		
 		"unlock_achievement":
 			var ach_id = str(data.get("achievementId", ""))
 			achievement_unlocked.emit(ach_id)
@@ -801,7 +860,13 @@ func _emit_http_success(data) -> void:
 			archive_stats_loaded.emit(total, by_sb)
 			_log("Archive stats: %d total archives" % total)
 		
-		"game_info", "game_stats", "health":
+		"game_info", "game_stats":
+			if typeof(data) == TYPE_DICTIONARY:
+				international_names = data.get("internationalNames", false) == true
+				game_info_loaded.emit(data)
+			_log("API response: %s" % str(data))
+		
+		"health":
 			_log("API response: %s" % str(data))
 		
 		"start_play_session":
@@ -889,6 +954,9 @@ func _emit_http_failure(error: String) -> void:
 		"change_nickname", "change_nickname_anonymous":
 			_requested_nickname = ""
 			nickname_error.emit(error)
+		"change_display_name":
+			_requested_display_name = ""
+			display_name_error.emit(error)
 		"unlock_achievement":
 			if _deferred_achievements_remaining > 0:
 				_deferred_achievements_remaining -= 1
@@ -1141,6 +1209,9 @@ func _update_cached_profile(profile: Dictionary) -> void:
 		play_count = _safe_int(profile.get("playCount", profile.get("plays", 0)))
 	
 	_nickname = nickname
+	# v2.5.0: only present when the game has International names on.
+	var dn_raw = profile.get("displayName", null)
+	_display_name = "" if dn_raw == null else str(dn_raw)
 	profile_loaded.emit(nickname, score, streak, achievements, play_count)
 
 # ============================================================
@@ -1260,10 +1331,39 @@ func get_auth_type() -> String:
 func set_api_key(key: String) -> void:
 	api_key = key
 	_log("API key set")
+	_adopt_game_id_from_key()
 
 func set_game_id(id: String) -> void:
 	game_id = id
+	_game_id_from_key = false
 	_log("Game ID set: %s" % id)
+	# An empty ID means "no override": fall back to the one in the API key
+	if id == "":
+		_adopt_game_id_from_key()
+
+## The game ID inside an API key. Keys are cb_<game-id>_<random>, so the game
+## ID is everything between the "cb_" prefix and the last underscore.
+## Returns "" if the key isn't in that shape.
+func _game_id_in_key(key: String) -> String:
+	if not key.begins_with("cb_"):
+		return ""
+	var end = key.rfind("_")
+	if end <= 3:
+		return ""
+	return key.substr(3, end - 3)
+
+## Takes the game ID from the API key unless the game set one itself.
+func _adopt_game_id_from_key() -> void:
+	var from_key = _game_id_in_key(api_key)
+	if from_key == "":
+		return
+	if game_id == "" or _game_id_from_key:
+		if game_id != from_key:
+			game_id = from_key
+			_log("Game ID taken from API key: %s" % game_id)
+		_game_id_from_key = true
+	elif game_id != from_key:
+		_log("WARNING: game ID '%s' does not match the API key's game '%s'" % [game_id, from_key])
 
 func set_session_token(token: String) -> void:
 	_session_token = token
@@ -1290,6 +1390,8 @@ func _reset_player_state() -> void:
 	_pending_server_nickname = ""
 	_pending_rename_attempts = 0
 	_requested_nickname = ""
+	_display_name = ""
+	_requested_display_name = ""
 	_play_session_token = ""
 	_last_profile_refresh = 0.0
 
@@ -1447,6 +1549,7 @@ func _expire_session() -> void:
 	_session_token = ""
 	_auth_type = ""
 	_nickname = ""
+	_display_name = ""
 	_cached_profile = {}
 	_clear_saved_session()
 	session_expired.emit()
@@ -1479,6 +1582,12 @@ func _sanitize_player_id(raw_id: String) -> String:
 
 ## Anonymous login - uses API key + persistent device ID
 func login_anonymous(nickname: String = "") -> void:
+	# Ignored while a linked session is active (call logout() first to switch
+	# to a guest): login_success still fires, with the linked nickname.
+	if not _session_token.is_empty():
+		_log("login_anonymous() ignored: a linked session is active (call logout() first)")
+		login_success.emit(_nickname)
+		return
 	if api_key.is_empty():
 		login_failed.emit("API key not set. Call set_api_key() first.")
 		return
@@ -1512,14 +1621,33 @@ func login_internet_identity(nickname: String = "") -> void:
 func login_chedda_id(nickname: String = "") -> void:
 	login_internet_identity(nickname)
 
-func logout() -> void:
+## Signs the player out. Pass fresh_device_id = true to also start a brand-new
+## anonymous identity, so the next login_anonymous() is a new guest rather than
+## the device ID that was merged into the account at link time. Useful for
+## shared devices and for testing link/merge flows.
+func logout(fresh_device_id: bool = false) -> void:
 	_reset_player_state()
 	_auth_type = ""
 	_session_token = ""
 	_clear_saved_session()
 	cancel_device_code()
+	if fresh_device_id:
+		reset_device_id()
 	logout_success.emit()
 	_log("Logged out")
+
+## Throws away the saved device ID and generates a new one, so the next
+## login_anonymous() is a brand-new guest.
+func reset_device_id() -> void:
+	var old_id = _player_id
+	_player_id = ""
+	if FileAccess.file_exists(DEVICE_ID_PATH):
+		var dir = DirAccess.open("user://")
+		if dir:
+			dir.remove(DEVICE_ID_PATH.trim_prefix("user://"))
+	_reset_player_state()
+	var new_id = get_player_id()
+	_log("Device ID reset: %s -> %s" % [old_id.left(12), new_id.left(12)])
 
 func is_authenticated() -> bool:
 	if _auth_type == "anonymous":
@@ -1591,6 +1719,64 @@ func change_nickname(new_nickname: String = "") -> void:
 		_log("Nickname change requested (API) for: %s -> %s" % [pid, new_nickname])
 	else:
 		nickname_error.emit("Not authenticated")
+
+# ============================================================
+# PUBLIC API - DISPLAY NAMES (v2.5.0)
+# ============================================================
+# A display name is an optional second name in any language. It only works
+# in games with "International names" turned on in the dashboard, and only
+# shows on boards there. Your UI needs a font with the characters players
+# will type (Godot's default font has no Japanese/Chinese/Korean glyphs):
+# add a fallback such as Noto Sans CJK to your theme font.
+#
+#   CheddaBoards.display_name_changed.connect(func(dn): $NameLabel.text = dn)
+#   CheddaBoards.display_name_error.connect(func(why): $Error.text = why)
+#   CheddaBoards.set_display_name("田中 太郎")
+
+## Set the player's display name. "" clears it (same as clear_display_name()).
+## The server is the authority on what's allowed (2-16 characters, one
+## alphabet with Japanese/Chinese/Korean mixes allowed, no emoji) and
+## normalises the text, so use the value from display_name_changed.
+func set_display_name(display_name: String) -> void:
+	var dn := display_name.strip_edges()
+	if dn.length() > 48:
+		display_name_error.emit("Display name is too long")
+		return
+	var body := {"displayName": null if dn.is_empty() else dn}
+	if not _session_token.is_empty():
+		_requested_display_name = dn
+		_make_http_request("/profile/display-name", HTTPClient.METHOD_PUT, body, "change_display_name")
+		_log("Display name change requested (session)")
+	elif not api_key.is_empty():
+		var pid = get_player_id()
+		if pid.is_empty():
+			display_name_error.emit("No player ID set")
+			return
+		_requested_display_name = dn
+		var url = "/players/%s/display-name" % pid.uri_encode()
+		_make_http_request(url, HTTPClient.METHOD_PUT, body, "change_display_name")
+		_log("Display name change requested (API) for: %s" % pid)
+	else:
+		display_name_error.emit("Not authenticated")
+
+## Remove the player's display name; they show as their nickname again.
+func clear_display_name() -> void:
+	set_display_name("")
+
+## The player's own display name, "" if they have none (or the game hasn't
+## turned on International names). Filled by the profile and by
+## display_name_changed.
+func get_display_name() -> String:
+	return _display_name
+
+## The name to show for a board entry (from scoreboard_loaded,
+## archived_scoreboard_loaded or leaderboard_loaded): the display name when
+## the entry has one, otherwise the nickname. "" means an unnamed guest.
+func get_entry_name(entry: Dictionary) -> String:
+	var dn = entry.get("displayName", null)
+	if dn != null and str(dn) != "":
+		return str(dn)
+	return str(entry.get("nickname", ""))
 
 # ============================================================
 # PUBLIC API - DEVICE CODE AUTH (Cross-platform social login)
@@ -2509,6 +2695,8 @@ func debug_status() -> void:
 	print("╠══════════════════════════════════════════════╣")
 	print("║ Profile                                      ║")
 	print("║  - Nickname:         %s" % get_nickname().rpad(24) + "║")
+	print("║  - Display Name:     %s" % get_display_name().left(20).rpad(24) + "║")
+	print("║  - Intl Names:       %s" % str(international_names).rpad(24) + "║")
 	print("║  - High Score:       %s" % str(get_high_score()).rpad(24) + "║")
 	print("║  - Best Streak:      %s" % str(get_best_streak()).rpad(24) + "║")
 	print("║  - Play Count:       %s" % str(get_play_count()).rpad(24) + "║")
